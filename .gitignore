@@ -1,3 +1,4 @@
+.ipynb_checkpoints/*
 **/.nc
 **/.ipynb_checkpoints
 **/coastal_data.egg-info
