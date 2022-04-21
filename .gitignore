@@ -1,4 +1,4 @@
 **/.nc
 **/.ipynb_checkpoints
-**/.egg-info/
-**/__pycache__/
+**/coastal_data.egg-info
+**/__pycache__
