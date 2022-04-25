@@ -4,11 +4,11 @@ import json
 from datetime import datetime
 
 
-def prepare_s3_data(datapath, filename_reprocessed, filename_input, filename_output, dist2coast):
+def prepare_s3_data(datapath_in, datapath_out, filename_reprocessed, filename_input, filename_output, dist2coast):
 
     # import netCDF files
-    nc_re = xr.open_dataset(datapath + filename_reprocessed, engine='netcdf4')
-    nc_in = xr.open_dataset(datapath + filename_input, engine='netcdf4')
+    nc_re = xr.open_dataset(datapath_in + filename_reprocessed, engine='netcdf4')
+    nc_in = xr.open_dataset(datapath_in + filename_input, engine='netcdf4')
 
     # recompute timestamps for reprocessed file
     refdate = np.datetime64('2000-01-01T00:00:00')
@@ -35,8 +35,8 @@ def prepare_s3_data(datapath, filename_reprocessed, filename_input, filename_out
         'description':'Sentinel-3 altimetric range retracked with ALES in EarthConsole PPRO together with the input file, track reduced to keep only points closer than dist2coast.',
         'dist2coast [m]': dist2coast,
         'creation_date':json.dumps(datetime.now(), indent=4, sort_keys=True, default=str),
-        'author':'Susann Aschenneller',
+        'author':'Bene Aschenneller',
         'email':'s.aschenneller@utwente.nl'    
     })
 
-    nc_in.to_netcdf(filename_output)
+    nc_in.to_netcdf(datapath_out + filename_output)
