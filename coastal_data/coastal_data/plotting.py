@@ -4,8 +4,8 @@ import cartopy.crs as ccrs
 
 def plot_altimetry_tracks(lon, lat, save=False, value=None, title='', label='', extent=None):
     """
-    lon: tuple of arrays
-    lat: tuple of arrays
+    lon: list or array
+    lat: list or array
     save: bool
         True: saves the plot as .png
     value : tuple of arrays
@@ -26,18 +26,16 @@ def plot_altimetry_tracks(lon, lat, save=False, value=None, title='', label='', 
         wnse = list(extent.values())
         ax.set_extent(wnse, crs=ccrs.PlateCarree())
     
-    for i in range(0, len(lon)):
-        if value is None:
-            plot = plt.scatter(lon[i], lat[i], marker ='+')
-        else:
-            plot = plt.scatter(lon[i], lat[i], c=value[i], marker='+')
-
+    if value is None:
+        plot = plt.scatter(lon, lat, marker ='+')
+    else:
+        plot = plt.scatter(lon, lat, c=value, marker='+')
 
     if value != None:
         cbar = plt.colorbar(plot, orientation="vertical")
         cbar.ax.tick_params(labelsize=20)
         cbar.set_label(label=label, size=20)
-            
+                
     plt.title(title,fontsize=25)    
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
