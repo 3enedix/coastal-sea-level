@@ -3,7 +3,7 @@ from setuptools import setup
 setuptools.setup(
     name = 'coastal_data',
     version = '0.1',
-    author = 'Susann Aschenneller',
+    author = 'Bene Aschenneller',
     author_email = 's.aschenneller@utwente.nl',
     description = 'Functionalities to process observational datasets describing a coast',
     install_requires=['numpy','xarray','datetime'],
