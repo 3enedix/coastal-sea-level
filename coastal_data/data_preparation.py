@@ -2,6 +2,8 @@ import xarray as xr
 import numpy as np
 import json
 from datetime import datetime
+import pandas as pd
+import os
 
 
 def prepare_s3_data(datapath_in, datapath_out, filename_reprocessed, filename_input, filename_output, dist2coast):
@@ -40,3 +42,48 @@ def prepare_s3_data(datapath_in, datapath_out, filename_reprocessed, filename_in
     })
 
     nc_in.to_netcdf(datapath_out + filename_output)
+    
+def prepare_TG_rijkswaterstaat_data(datapath_in, datapath_out):
+    '''
+    Combines all .csv-files from datapath_in with tide gauge data from rijkswaterstaat. Extracts only necessary data fields, converts times to UTC.
+    
+    BA 11/2022
+    
+    Arguments
+    ----------
+    'datapath_in': string
+    'datapath_out': string
+    
+    Returns
+    ----------
+    Saves the combined .csv-file in datapath_out.
+    '''
+    data = pd.DataFrame(columns=['datetime[utc]', 'ssh[cm]'])
+    data = data.set_index('datetime[utc]')
+
+    for root, dirs, files in os.walk(datapath_in):
+        for fname in files:
+            if ('.csv' in fname) & ('#' not in fname):
+                data_orig = pd.read_csv(datapath_in + fname, sep=';', header=0,\
+                            encoding='latin_1', engine='python', usecols=['WAARNEMINGDATUM', \
+                            'WAARNEMINGTIJD (MET/CET)', 'NUMERIEKEWAARDE', 'WAARDEBEPALINGSMETHODE_CODE'])
+                
+                # Extract code F007: "Rekenkundig gemiddelde waarde over vorige 5 en volgende 5 minuten"
+                F007 = data_orig[data_orig['WAARDEBEPALINGSMETHODE_CODE'] == 'other:F007']
+                # Extract code F001: "Rekenkundig gemiddelde waarde over vorige 10 minuten"
+                F001 = data_orig[data_orig['WAARDEBEPALINGSMETHODE_CODE'] == 'other:F001']
+                data_orig = pd.concat([F001, F007], axis=0)            
+                data_orig = data_orig.drop('WAARDEBEPALINGSMETHODE_CODE', axis=1)
+
+                data_temp = pd.DataFrame()
+                data_temp['ssh[cm]'] = data_orig['NUMERIEKEWAARDE']
+                date = pd.to_datetime(data_orig['WAARNEMINGDATUM'] + ' ' + data_orig['WAARNEMINGTIJD (MET/CET)'], \
+                                                format="%d-%m-%Y %H:%M:%S", utc=True)
+                date = date - pd.Timedelta("1 hour")
+                data_temp['datetime[utc]'] = date
+                data_temp = data_temp.set_index('datetime[utc]')
+
+                data = pd.concat([data, data_temp])
+                
+    data = data.sort_index()
+    data.to_csv(datapath_out + "TG_rijkswaterstaat_combined.csv")
