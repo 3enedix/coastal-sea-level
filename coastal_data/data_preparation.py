@@ -86,4 +86,5 @@ def prepare_TG_rijkswaterstaat_data(datapath_in, datapath_out):
                 data = pd.concat([data, data_temp])
                 
     data = data.sort_index()
+    data = data[data['ssh[cm]'] != 999999999]
     data.to_csv(datapath_out + "TG_rijkswaterstaat_combined.csv")
