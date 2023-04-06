@@ -82,6 +82,11 @@ def compute_periodic_signal_and_trend(t, l, f):
     '''
         
     # A-matrix
+    # 1. column: df/dy = cos(2 pi f t) (y = A sin omega t)'
+    # 2. column: df/dy = sin (2 pi f t) (y = B cos omega t)'
+    # 3. column: df/dy = t (y = C t)' (trend)
+    # 4. column: df/dy = 1 (y = D)' (offset)
+    
     col1 = np.cos(2*np.pi*f*t)
     col2 = np.sin(2*np.pi*f*t)
     col3 = t
