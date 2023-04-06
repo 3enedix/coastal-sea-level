@@ -63,3 +63,39 @@ def compute_trend(x, y):
     xs = np.linalg.solve(N,n)
     
     return round(xs[0], 4)
+
+def compute_periodic_signal_and_trend(t, l, f):
+    '''
+    Estimates a periodic signal of frequency f and the trend of a discrete function with least squares.
+    
+    Input
+    ------------------------
+    t: array or list of timestamps (preferably [years])
+    l: array or list of values in [units]
+    
+    Output
+    ------------------------
+    amplitude in [units]
+    phase in rad
+    trend in [units]/[years]
+    offset in [units]
+    '''
+        
+    # A-matrix
+    col1 = np.cos(2*np.pi*f*t)
+    col2 = np.sin(2*np.pi*f*t)
+    col3 = t
+    col4 = np.ones(len(t))
+    
+    A = np.transpose(np.vstack((col1, col2, col3, col4)))
+    
+    N = np.matmul(np.transpose(A), A) # A'A
+    n = np.matmul(np.transpose(A), l) # A'l
+    xs = np.linalg.solve(N,n)
+    
+    a, b = xs[0], xs[1]
+    c, d = xs[2], xs[3] # trend, offset
+    amplitude = np.sqrt(a**2 + b**2)
+    phase = np.arctan2(a, b)
+    
+    return amplitude, phase, c, d
