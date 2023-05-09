@@ -56,7 +56,7 @@ def compute_trend(x, y):
     col1 = x
     col2 = np.ones(len(y))
 
-    A = np.concatenate((col1[:, None], col2[:, None]), axis=1)
+    A = np.transpose(np.vstack((col1, col2)))
     
     N = np.matmul(np.transpose(A), A) # A'A
     n = np.matmul(np.transpose(A), y) # A'l
