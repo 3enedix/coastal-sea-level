@@ -18,3 +18,6 @@ def decimal_numbers_to_datetime(decim):
 
     date = pd.to_datetime(date, utc=True)
     return date
+
+def datatime_to_decimal_numbers(date):
+    return(date.year + (date.dayofyear - 1)/365.25)
