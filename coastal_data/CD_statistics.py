@@ -38,8 +38,9 @@ def compute_trend(x, y):
     Output
     ------------------------
     trend of the linear function in [units]/[years]
-    '''
-    
+    covariance matrix (of trend and y-axis-intercept)
+    array of differences between observation and model (verbesserungen v)
+    '''    
     
     # remove nans
     idx_nan = np.nonzero(np.isnan(y))[0]
@@ -61,8 +62,18 @@ def compute_trend(x, y):
     N = np.matmul(np.transpose(A), A) # A'A
     n = np.matmul(np.transpose(A), y) # A'l
     xs = np.linalg.solve(N,n)
+
+    # Compute covariance matrix
+    # Verbesserungen v=Ax-b
+    v = np.matmul(A, xs) - y # wie weit die Beobachtungen von der geschaetzten Gerade weg sind
+    n_obs = len(y)
+    n_unknown = 2
+    v02 = np.matmul(np.transpose(v), v) / (n_obs - n_unknown) # v'v/f Varianzfaktor a posteriori
+    Qxx = np.linalg.inv(N) # Kofaktormatrix der ausgegelichenen Unbekannten
+    Cxx = v02 * Qxx # Kovarianzmatrix der ausgegelichenen Unbekannten
     
-    return round(xs[0], 4)
+    return round(xs[0], 4), Cxx, v
+
 
 def compute_periodic_signal_and_trend(t, l, f):
     '''
@@ -79,6 +90,8 @@ def compute_periodic_signal_and_trend(t, l, f):
     phase in rad
     trend in [units]/[years]
     offset in [units]
+
+    covariance matrix of all 4 unknowns
     '''
         
     # A-matrix
@@ -102,5 +115,14 @@ def compute_periodic_signal_and_trend(t, l, f):
     c, d = xs[2], xs[3] # trend, offset
     amplitude = np.sqrt(a**2 + b**2)
     phase = np.arctan2(a, b)
+
+    # Compute covariance matrix
+    # Verbesserungen v=Ax-b
+    v = np.matmul(A, xs) - y # wie weit die Beobachtungen von der geschaetzten Gerade weg sind
+    n_obs = len(y)
+    n_unknown = 2
+    v02 = np.matmul(np.transpose(v), v) / (n_obs - n_unknown) # v'v/f Varianzfaktor a posteriori
+    Qxx = np.linalg.inv(N) # Kofaktormatrix der ausgegelichenen Unbekannten
+    Cxx = v02 * Qxx # Kovarianzmatrix der ausgegelichenen Unbekannten
     
-    return amplitude, phase, c, d
+    return amplitude, phase, c, d, Cxx
