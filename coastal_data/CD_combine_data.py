@@ -77,7 +77,7 @@ def waterline_method(rs_shoreline, ssh, startdate, enddate):
     shorelines = [rs_shoreline['shorelines'][_] for _ in idx_cassie]
 
     # Initialise geodataframe with shoreline coordinates and corresponding sea level
-    combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'shoreline'], geometry='shoreline')
+    combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'coords'], geometry='coords')
     for i, cassie_date in enumerate(dates_cassie):
         # Get the sea level observation from the respective month
         idx_ssh, = np.nonzero((cassie_date.year == ssh.index.year) & (cassie_date.month == ssh.index.month))
@@ -107,8 +107,8 @@ def waterline_method(rs_shoreline, ssh, startdate, enddate):
         gdf_temp = gpd.GeoDataFrame({
             'dates':cassie_date_expanded,
             'ssh':ssh_expanded,
-            'shoreline':gpd.points_from_xy(shoreline_coords[:,0], shoreline_coords[:,1])
-                            })
+            'coords':gpd.points_from_xy(shoreline_coords[:,0], shoreline_coords[:,1])
+        })
         combined_gdf = pd.concat([combined_gdf, gdf_temp])
     
     combined_gdf = combined_gdf.set_index('dates')
