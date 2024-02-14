@@ -66,15 +66,7 @@ def waterline_method(rs_shoreline, ssh, startdate, enddate):
                   and the corresponding sea surface heights
     '''
 
-    # Extract shorelines that fall in the period between startdate and enddate
-    sdate = pd.to_datetime(startdate, utc=True)
-    edate = pd.to_datetime(enddate, utc=True)
-    
-    idx_cassie, = np.nonzero(np.array([(_ > sdate) & (_ < edate) for _ in rs_shoreline['dates']]))
-    print(str(len(idx_cassie)) + ' images between ' + str(sdate) + ' and ' + str(edate))
-    
-    dates_cassie = np.array(rs_shoreline['dates'])[idx_cassie]
-    shorelines = [rs_shoreline['shorelines'][_] for _ in idx_cassie]
+    dates_cassie, shorelines = extract_shorelines_from_period(rs_shoreline, startdate, enddate)
 
     # Initialise geodataframe with shoreline coordinates and corresponding sea level
     combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'coords'], geometry='coords')
@@ -113,3 +105,27 @@ def waterline_method(rs_shoreline, ssh, startdate, enddate):
     
     combined_gdf = combined_gdf.set_index('dates')
     return combined_gdf
+
+def extract_shorelines_from_period(rs_shoreline, startdate, enddate):
+    '''
+    Extract shorelines that fall in the period between startdate and enddate
+    
+    Input
+    rs_shoreline: Dictionary with keys 'dates' and 'shorelines'
+    startdate: string as 'yyyy-mm-dd'
+    enddate: string as 'yyyy-mm-dd'
+
+    Output
+    dates
+    shorelines
+    '''
+    sdate = pd.to_datetime(startdate, utc=True)
+    edate = pd.to_datetime(enddate, utc=True)
+    
+    idx_cassie, = np.nonzero(np.array([(_ > sdate) & (_ < edate) for _ in rs_shoreline['dates']]))
+    print(str(len(idx_cassie)) + ' images between ' + str(sdate) + ' and ' + str(edate))
+    
+    dates_cassie = np.array(rs_shoreline['dates'])[idx_cassie]
+    shorelines = [rs_shoreline['shorelines'][_] for _ in idx_cassie]
+
+    return dates_cassie, shorelines
