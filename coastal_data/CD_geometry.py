@@ -1,8 +1,64 @@
 from scipy.spatial import Delaunay
 import numpy as np
+import pandas as pd
 from shapely.ops import polygonize, unary_union
-from shapely import LineString, MultiLineString, Polygon, get_coordinates
+from shapely import Point, LineString, MultiLineString, Polygon, get_coordinates, segmentize, distance, intersection
 import geopandas as gpd
+import geojson
+
+import pdb
+
+def median_shoreline_from_transect_intersections(shorelines, spacing=100, transect_length=5000):
+    '''
+    From a set of shorelines, get the median shoreline
+    as the median of the intersections of the shorelines
+    with a set of transects.
+
+    ! Does currently not involve tidal correction !
+
+    Input
+    shorelines - List of nx2-arrays with n shoreline coordinates (x,y)
+    spacing - spacing of the created transects
+    transect_length - length of the created transectss
+
+    Output
+    median_sl - LineString of the median shoreline
+    '''
+    # Get the longest shoreline as basis for the transects
+    dist = []
+    for sl in shorelines:
+        dist.append(distance(Point(sl[0]), Point(sl[-1])))
+    idx_long, = np.nonzero(dist == np.max(dist))[0]
+    long_sl = LineString(shorelines[idx_long])
+    smooth_sl = smooth_LineString(long_sl, n=100)
+    
+    # Create transects
+    transects_gdf =create_transects(smooth_sl, spacing=spacing, transect_length=transect_length)
+    
+    # Compute intersections between shorelines and transects, get the median of all intersections per transects
+    nr_transects = len(transects_gdf)
+    transect_median = np.full((nr_transects,2), np.nan)
+    for idx_trans, transect in enumerate(transects_gdf.geometry):
+        x_temp, y_temp = [], [] # x- and y-coords of the intersections between all shorelines and one transect
+        for sl in shorelines:
+            shoreline = LineString(sl)
+            int = intersection(shoreline, transect)
+            nr_ints = get_coordinates(int).shape[0]
+            if nr_ints == 1:
+                x_temp.append(get_coordinates(int)[0][0])
+                y_temp.append(get_coordinates(int)[0][1])
+            if nr_ints > 1: # = MultiPoint
+                # Select the most seaward point (furthest away from transect origin)
+                mp_list = list(int.geoms)
+                dist = [distance(_, Point(transect.coords[0])) for _ in mp_list]
+                idx, = np.nonzero(dist == np.max(dist))[0]
+                x_temp.append(mp_list[idx].x)
+                y_temp.append(mp_list[idx].y)
+        transect_median[idx_trans, 0] = np.median(x_temp)
+        transect_median[idx_trans, 1] = np.median(y_temp)
+    
+    median_sl = LineString(transect_median)
+    return median_sl
 
 def concave_hull_alpha_shape(points, alpha=0.01):
     '''
@@ -31,9 +87,95 @@ def concave_hull_alpha_shape(points, alpha=0.01):
     # return gpd.GeoDataFrame({"geometry": [unary_union(triangles)]}, index=[0])
     return unary_union(triangles)
 
+def get_polar_angle(seg):
+    '''
+    Compute polar angle of a single line segment.
+    
+    Input
+    seg - List (len=2) with (x,y)-tuples
+    
+    Output
+    polar angle in radians
+    '''
+    x1, y1 = seg[0][0], seg[0][1]
+    x2, y2 = seg[1][0], seg[1][1]
+    
+    delta_x = x2 - x1
+    delta_y = y2 - y1
+    
+    polar_angle = np.arctan2(delta_y, delta_x)
+    return(polar_angle)
+
+def dist_angle_to_coords(start_point, dist, polar_angle):
+    '''
+    Compute coordinate from distance and polar angle based on a starting point.
+
+    Input
+    start_point - tuple (x,y) (metric)
+    dist - distance (same unit as start_point)
+    polar_angle - polar angle (azimuth) in radians
+
+    Output
+    new coordinate as tuple (x,y)
+    '''
+    
+    x_new = start_point[0] + dist * np.cos(polar_angle)
+    y_new = start_point[1] + dist * np.sin(polar_angle)
+
+    return (x_new, y_new)
+
+def create_transects(shoreline, spacing=100, transect_length=5000, save_path=None, save_fn=None):
+    '''
+    Create transects perpendicular on a LineString and
+    saves them as geojson file.
+
+    Input
+    shoreline - LineString
+    spacing - minimum spacing of the desired transects
+    save_path, save_fn - strings to specify the location of the geojson file
+
+    Output
+    transects as LineStrings in a GeoDataFrame
+    Transects are saved to geojson if save_path and save_fn are passed
+    '''
+    sl_seg = segmentize(shoreline, spacing)
+    trans_gdf = gpd.GeoDataFrame(columns=['name', 'transect'], geometry='transect').set_index('name')
+    featureList = []
+    nr = 1 # transect number
+    for i in range(1, len(sl_seg.coords)-1): # i=index of the point through which the transect should go
+        seg1 = sl_seg.coords[i-1:i+1]
+        seg2 = sl_seg.coords[i:i+2]
+    
+        t1 = get_polar_angle(seg1)
+        t2 = get_polar_angle(seg2)
+        polar_angle_new = np.mean([t1,t2]) + np.pi/2
+    
+        point_seawards = dist_angle_to_coords(seg1[1], transect_length/2, polar_angle_new)
+        point_landwards = dist_angle_to_coords(seg1[1], -transect_length/2, polar_angle_new)
+        
+        trans_temp = gpd.GeoDataFrame(
+            {'name':nr,
+            'transect': LineString([point_seawards, point_landwards])},
+            geometry='transect',
+            index=[0]).set_index('name')
+        trans_gdf = pd.concat([trans_gdf, trans_temp])
+
+        if (save_path != None) & (save_fn != None):
+            trans_line_temp = geojson.LineString([point_landwards, point_seawards])
+            trans_feature_temp = geojson.Feature(geometry = trans_line_temp, properties = {'name': str(nr)})
+            featureList.append(trans_feature_temp)
+        nr = nr + 1  
+        
+    if (save_path != None) & (save_fn != None):
+        transects = geojson.FeatureCollection(featureList)
+        with open(save_path + save_fn, 'w') as f:
+            geojson.dump(transects, f)
+            
+    return trans_gdf
+
 def define_single_transect(first_point, second_point, transect_length=1000):
     '''
-    Create a transect perpendicular to a shoreline segment defined by a first and a second point.
+    Create a transect perpendicular to a (single) shoreline segment defined by a first and a second point.
     The transect is created through the first point.
     
     Input
@@ -44,13 +186,8 @@ def define_single_transect(first_point, second_point, transect_length=1000):
     Output
     LineString of the new transect through first_point
     '''
-    x1, y1 = first_point[0], first_point[1]
-    x2, y2 = second_point[0], second_point[1]
-
-    delta_x = x2 - x1
-    delta_y = y2 - y1
-
-    polar_angle = np.arctan2(delta_y, delta_x)
+    seg = [first_point, second_point]
+    polar_angle = get_polar_angle(seg)
     polar_angle_new = polar_angle + np.pi/2
     
     x_landwards = x1 - transect_length/2 * np.cos(polar_angle_new)
@@ -63,7 +200,7 @@ def define_single_transect(first_point, second_point, transect_length=1000):
 
 def smooth_LineString(linestring, n=50):
     '''
-    Input:
+    Input
     linestring
     n = filter length
     '''
