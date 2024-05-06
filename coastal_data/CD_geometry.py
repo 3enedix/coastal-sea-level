@@ -2,7 +2,7 @@ from scipy.spatial import Delaunay
 import numpy as np
 import pandas as pd
 from shapely.ops import polygonize, unary_union
-from shapely import Point, LineString, MultiLineString, Polygon, get_coordinates, segmentize, distance, intersection
+from shapely import Point, LineString, MultiLineString, MultiPoint, Polygon, get_coordinates, segmentize, distance, intersection, buffer
 import geopandas as gpd
 import geojson
 
@@ -245,7 +245,56 @@ def get_rotated_boundary_box(array):
 
     return(corners)
 
+def get_area_covered_by_shorelines(shorelines, buffer_size=250):
+    '''
+    Get the outer boundary of an area defined by a set of shorelines,
+    expanded by a buffer zone
+    Used to define the target grid for the desired DEM.
+    
+    Input
+    -----
+    shorelines - List of nx2-arrays with n shoreline coordinates (x,y)
+    buffer_size - Buffer in [m] to expand
 
+    Output
+    -----
+    poly_buffered - shapely Polygon
+    
+    '''
+    lines = [LineString(_) for _ in shorelines]
+    poly = concave_hull_alpha_shape(lines, alpha=0.001)
+    # !!! might end up in a MultiPolygon
+    poly_buffered = buffer(poly, buffer_size)    
+    return poly_buffered
 
+def create_target_grid(poly, resolution=100):
+    '''
+    Create a grid inside a pre-defined polygon.
 
+    Input
+    -----
+    poly - Shapely polygon defining the grid area.
+    resolution - grid size in [m] (same in x-/y-direction)
+    
+    Ouput
+    -----
+    x, y - List of grid coordinates
+    '''
+
+    lonmin, latmin, lonmax, latmax = poly.bounds
+    
+    lon_vec = np.arange(lonmin, lonmax, resolution)
+    lat_vec = np.arange(latmin, latmax, resolution)
+    
+    x_grid, y_grid = np.meshgrid(lon_vec, lat_vec)
+    x_grid, y_grid = np.round(x_grid, 4), np.round(y_grid, 4)
+    
+    points = MultiPoint(list(zip(x_grid.flatten(),y_grid.flatten())))
+
+    valid_points = points.intersection(poly)
+    
+    x = [get_coordinates(_)[0][0] for _ in valid_points.geoms]
+    y = [get_coordinates(_)[0][1] for _ in valid_points.geoms]
+
+    return x, y
 
