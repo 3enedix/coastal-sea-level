@@ -254,7 +254,7 @@ def get_area_covered_by_shorelines(shorelines, buffer_size=250):
     Input
     -----
     shorelines - List of nx2-arrays with n shoreline coordinates (x,y)
-    buffer_size - Buffer in [m] to expand
+    buffer_size - Buffer in [m/degree] (depends on reference system) to expand
 
     Output
     -----
@@ -274,11 +274,12 @@ def create_target_grid(poly, resolution=100):
     Input
     -----
     poly - Shapely polygon defining the grid area.
-    resolution - grid size in [m] (same in x-/y-direction)
+    resolution - grid size in [m/degree] (depends on reference system) (same in x-/y-direction)
     
     Ouput
     -----
-    x, y - List of grid coordinates
+    x, y - List of grid coordinates inside the polygon
+    x_full, y_full - List of grid coordinates inside the boundary box
     '''
 
     lonmin, latmin, lonmax, latmax = poly.bounds
@@ -290,11 +291,17 @@ def create_target_grid(poly, resolution=100):
     x_grid, y_grid = np.round(x_grid, 4), np.round(y_grid, 4)
     
     points = MultiPoint(list(zip(x_grid.flatten(),y_grid.flatten())))
+    x_full = [get_coordinates(_)[0][0] for _ in points.geoms]
+    y_full = [get_coordinates(_)[0][1] for _ in points.geoms]
 
     valid_points = points.intersection(poly)
     
     x = [get_coordinates(_)[0][0] for _ in valid_points.geoms]
     y = [get_coordinates(_)[0][1] for _ in valid_points.geoms]
 
-    return x, y
+    return x, y, x_full, y_full
 
+def switch_polygon_xy(poly):
+    poly_lat = get_coordinates(poly)[:,0]
+    poly_lon = get_coordinates(poly)[:,1]
+    return Polygon(list(zip(poly_lon, poly_lat)))
