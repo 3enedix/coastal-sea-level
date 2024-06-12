@@ -156,3 +156,22 @@ def compute_periodic_signal_and_trend(t, l, f):
     phase = np.arctan2(a, b)
     
     return amplitude, phase, c, d
+
+def first_derivative(x, y, n):
+    '''
+    Input
+    x - array of x-values
+    y - array of y-values
+    n - int, 0.5 filterlength (n = 1: no smoothing)
+
+    Output
+    m - first derivative
+    '''
+    df = np.concatenate((np.ones(n),-np.ones(n)))
+    
+    dy = np.convolve(y, df, 'valid')
+    dx = np.convolve(x, df, 'valid')
+
+    m = dy / dx
+    
+    return m
