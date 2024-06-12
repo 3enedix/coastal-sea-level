@@ -99,7 +99,7 @@ def waterline_method(rs_shoreline, ssh, startdate, enddate):
         gdf_temp = gpd.GeoDataFrame({
             'dates':cassie_date_expanded,
             'ssh':ssh_expanded,
-            'coords':gpd.points_from_xy(shoreline_coords[:,0], shoreline_coords[:,1])
+            'coords':gpd.points_from_xy(shoreline_coords[:,1], shoreline_coords[:,0])
         })
         combined_gdf = pd.concat([combined_gdf, gdf_temp])
     
