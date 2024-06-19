@@ -89,7 +89,7 @@ def waterline_method_single(sl_date, shoreline, ssh, tidal_corr):
         'dates':sl_date_expanded,
         'ssh':ssh_expanded,
         'coords':gpd.points_from_xy(shoreline_coords[:,1], shoreline_coords[:,0])
-    })
+    }, geometry='coords')
     return combined_gdf
 
 def waterline_method_period(rs_shoreline, ssh, startdate, enddate):
