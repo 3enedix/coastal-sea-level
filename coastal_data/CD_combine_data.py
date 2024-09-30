@@ -79,7 +79,7 @@ def waterline_method_single(sl_date, shoreline, ssh, tidal_corr):
     eot_corr = tidal_corr.loc[tidal_corr.index[idx_tcorr]]
     
     # De-tidal-correct sea level
-    ssh_height_decorr = ssh_height_corr.values + eot_corr.values/100 # [m], for +/- decision see notebook 19.12.2023
+    ssh_height_decorr = ssh_height_corr.values + eot_corr.values/100
     
     # Put shoreline and corresponding SSH in geodataframe
     shoreline_coords = get_coordinates(LineString(shoreline))
@@ -92,7 +92,7 @@ def waterline_method_single(sl_date, shoreline, ssh, tidal_corr):
     }, geometry='coords')
     return combined_gdf
 
-def waterline_method_period(rs_shoreline, ssh, startdate, enddate):
+def waterline_method_period(rs_shoreline, ssh, tidal_corr, startdate, enddate):
     '''
     Combine shoreline coordinates with sea surface heights
     as a basis for an intertidal DEM ("waterline method")
@@ -104,6 +104,7 @@ def waterline_method_period(rs_shoreline, ssh, startdate, enddate):
     -----------------
     rs_shoreline: Dictionary with keys 'dates' and 'shorelines'
     ssh: Pandas series of sea level (tidally corrected) with timestamps in index
+    tidal_corr: Pandas series of tidal correction with timestamps in index
     startdate: string as 'yyyy-mm-dd'
     enddate: string as 'yyyy-mm-dd'
     -----------------
@@ -112,11 +113,6 @@ def waterline_method_period(rs_shoreline, ssh, startdate, enddate):
     combined_gdf: Intertidal point cloud, GeoDataFrame with the shoreline coordinates
                   and the corresponding sea surface heights
     '''
-    # Get the tidal correction from the 10-minute interval closest to the time of image acquisition
-    path = '/media/bene/Seagate/PhD-data/3_ocean_tide_models/'
-    fn = 'tidal_correction_10minutes.csv'
-    tidal_corr = pd.read_csv(path + fn, index_col='date', parse_dates=['date'])
-
     dates_cassie, shorelines = extract_shorelines_from_period(rs_shoreline, startdate, enddate)
 
     # Initialise geodataframe with shoreline coordinates and corresponding sea level
@@ -135,8 +131,8 @@ def waterline_method_period(rs_shoreline, ssh, startdate, enddate):
         eot_corr = tidal_corr.loc[tidal_corr.index[idx_tcorr], ['corr_eot[cm]']]
         
         # De-tidal-correct sea level
-        ssh_height_decorr = ssh_height_corr.values + eot_corr.values/100 # [m], for +/- decision see notebook 19.12.2023
-
+        ssh_height_decorr = ssh_height_corr.values + eot_corr.values/100
+        
         # Put shoreline and corresponding SSH in geodataframe
         shoreline_coords = get_coordinates(LineString(shorelines[i]))
         cassie_date_expanded = np.repeat(cassie_date, len(shoreline_coords))
