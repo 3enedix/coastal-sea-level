@@ -1,4 +1,7 @@
 import numpy as np
+from scipy.sparse import lil_array, csc_array, linalg
+from scipy.spatial import cKDTree
+from shapely import get_coordinates
 
 def rms(ts):
     return round(np.sqrt(np.nanmean(ts **2)),3)
@@ -175,3 +178,42 @@ def first_derivative(x, y, n):
     m = dy / dx
     
     return m
+
+def build_designmatrix_nn(x_state, int_pc):
+    '''
+    Build A-matrix with nearest neighbours.
+    The states are the elevations in each grid point.
+    The observations are the heights assigned to shoreline points (intertidal point cloud from waterline method) at one point in time.
+    For each observation, find the closest grid point with nearest neighbours.
+    -> Each row has exactly one 1 (at the closest grid point), the rest are zeros.
+    
+    Input
+    -----
+    x_state: GeoDataFrame, one row per grid point, the geometry column contains POINT objects
+             with the coordinates of the target grid
+    int_pc: Intertidal point cloud (= observation) for one point in time (-> one shoreline observations),
+            GeoDataFrame with one shoreline point per row, geometry column with POINT objects
+            contains the coordinates of the shoreline points
+    '''
+    # Number of unknowns and observations
+    n_obs = len(int_pc)
+    n_unk = len(x_state)
+    
+    # Coordinates of state vector and observations
+    x_coords = get_coordinates(x_state.geometry) # state vector
+    int_pc_coords = get_coordinates(int_pc.geometry) # observations
+
+    # Nearest neighbour lookup
+    tree = cKDTree(x_coords)
+    dist, idx_unk = tree.query(int_pc_coords, k=1) # idx_unk is the column index for A
+    
+    # Artificial row index
+    idx_obs = np.arange(0, n_obs)
+    
+    A = lil_array((n_obs, n_unk))
+    A[idx_obs, idx_unk] = 1
+
+    return A
+
+
+
