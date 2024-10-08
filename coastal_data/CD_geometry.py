@@ -336,4 +336,30 @@ def dist_meter_to_dist_deg(dist_m):
     R = 6371e3 # Earth radius [m]
     return (180 * dist_m) / (R * np.pi)
 
+def equalise_LineString_segment_lenghts(line_orig, seg_length):
+    '''
+    Equalise the segment lengths of a LineString, so that all segments
+    have the exact same length. Uses interpolation, therefore the output
+    LineString is not necessarily the exact overlay of the input LineString
+    (if the input LineString has segments shorter than the desired seg_length
+    the interpolation "cuts off" the edge).
+    
+    Input
+    -----
+    line_orig - LineString
+    seg_length - Desired segment length (float/int)
 
+    Output
+    -----
+    line_seg - LineString
+    '''
+    total_length = line_orig.length
+    # Number of segments needed
+    num_segments = int(total_length / seg_length)
+    # Generate evenly spaced points along the LineString
+    # Include the start (0) and end (total_length)
+    distances = np.linspace(0, total_length, num_segments + 1)
+    new_points = [line_orig.interpolate(distance) for distance in distances]
+    
+    line_seg = LineString(new_points)
+    return line_seg
