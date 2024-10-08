@@ -262,7 +262,7 @@ def get_area_covered_by_shorelines(shorelines, buffer_size=250):
     
     '''
     lines = [LineString(_) for _ in shorelines]
-    poly = concave_hull_alpha_shape(lines, alpha=0.001)
+    poly = concave_hull_alpha_shape(lines, alpha=100)
     # !!! might end up in a MultiPolygon
     poly_buffered = buffer(poly, buffer_size)    
     return poly_buffered
@@ -288,7 +288,7 @@ def create_target_grid(poly, resolution=100):
     lat_vec = np.arange(latmin, latmax, resolution)
     
     x_grid, y_grid = np.meshgrid(lon_vec, lat_vec)
-    x_grid, y_grid = np.round(x_grid, 4), np.round(y_grid, 4)
+    # x_grid, y_grid = np.round(x_grid, 4), np.round(y_grid, 4)
     
     points = MultiPoint(list(zip(x_grid.flatten(),y_grid.flatten())))
     x_full = [get_coordinates(_)[0][0] for _ in points.geoms]
@@ -305,3 +305,35 @@ def switch_polygon_xy(poly):
     poly_lat = get_coordinates(poly)[:,0]
     poly_lon = get_coordinates(poly)[:,1]
     return Polygon(list(zip(poly_lon, poly_lat)))
+
+def cut_DEM_to_target_area(dem, varname, target_poly, source):
+    '''
+    Reduce DEM data to an area defined by a shapely polygon.
+    
+    Input
+    -----
+    dem - xarray Dataset with the original DEM
+    varname - name of the xarray Dataset variable that contains the elevation information
+    target_poly - shapely Polygon
+    source - string for an extra column to indicate the name of the original DEM
+
+    Output
+    -----
+    dem_gdf - geopandas GeoDataFrame with Points(x,y), elevation and source
+    '''
+    dem_df = dem.to_dataframe().reset_index()
+    dem_df = dem_df.rename(columns={'lat':'y', 'lon':'x'})
+    dem_gdf = gpd.GeoDataFrame({
+                'elevation':dem_df[varname],
+                }, geometry=gpd.points_from_xy(dem_df.x, dem_df.y))
+    
+    dem_gdf = dem_gdf[dem_gdf.intersects(target_poly)]
+    dem_gdf['source'] = source
+    
+    return dem_gdf
+
+def dist_meter_to_dist_deg(dist_m):
+    R = 6371e3 # Earth radius [m]
+    return (180 * dist_m) / (R * np.pi)
+
+
