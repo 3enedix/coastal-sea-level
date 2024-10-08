@@ -5,6 +5,7 @@ import geopandas as gpd
 import numpy as np
 from shapely import get_coordinates, LineString
 import pdb
+from coastal_data import CD_geometry
 
 def combine_cassie(path, folders, epsg):
     '''
@@ -47,7 +48,7 @@ def combine_cassie(path, folders, epsg):
     sl_cassie = {'dates' : datelist, 'shorelines' : sllist}
     return sl_cassie
 
-def waterline_method_single(sl_date, shoreline, ssh, tidal_corr):
+def waterline_method_single(sl_date, shoreline, seg_len, ssh, tidal_corr):
     '''
     Combine shoreline coordinates with sea surface heights
     as a basis for an intertidal DEM ("waterline method")
@@ -57,6 +58,8 @@ def waterline_method_single(sl_date, shoreline, ssh, tidal_corr):
     -----------------
     sl_date: One single time stamp as datetime.datetime
     shorelines: One single shoreline as n,2 array with n points (lat, lon)
+    seg_len: float/int of the desired segment length of the shorelines
+            (segments shorter than seg_len will be "cut off" by the interpolation)
     ssh: Pandas series of sea level (tidally corrected) with timestamps in index
     tidal_corr: Pandas series of tidal correction with timestamps in index
     -----------------
@@ -71,7 +74,10 @@ def waterline_method_single(sl_date, shoreline, ssh, tidal_corr):
         # return empty GeoDataFrame (so that it could technically be concatenated with non-empty DataFrames)
         combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'coords'], geometry='coords')
         return combined_gdf
-        
+
+    # Equalise segment lengths
+    shoreline = get_coordinates(CD_geometry.equalise_LineString_segment_lenghts(LineString(shoreline), seg_len))
+    
     ssh_height_corr = ssh.loc[ssh.index[idx_ssh]]
     
     timediff = tidal_corr.index - pd.to_datetime(sl_date)
@@ -93,7 +99,7 @@ def waterline_method_single(sl_date, shoreline, ssh, tidal_corr):
     }, geometry='coords')
     return combined_gdf
 
-def waterline_method_period(rs_shoreline, ssh, tidal_corr, startdate, enddate):
+def waterline_method_period(rs_shoreline, seg_len, ssh, tidal_corr, startdate, enddate):
     '''
     Combine shoreline coordinates with sea surface heights
     as a basis for an intertidal DEM ("waterline method")
@@ -104,6 +110,8 @@ def waterline_method_period(rs_shoreline, ssh, tidal_corr, startdate, enddate):
     Input
     -----------------
     rs_shoreline: Dictionary with keys 'dates' and 'shorelines'
+    seg_len: float/int of the desired segment length of the shorelines
+            (segments shorter than seg_len will be "cut off" by the interpolation)
     ssh: Pandas series of sea level (tidally corrected) with timestamps in index
     tidal_corr: Pandas series of tidal correction with timestamps in index
     startdate: string as 'yyyy-mm-dd'
@@ -117,6 +125,9 @@ def waterline_method_period(rs_shoreline, ssh, tidal_corr, startdate, enddate):
     dates_cassie, shorelines = extract_shorelines_from_period(rs_shoreline, startdate, enddate)
     if len(dates_cassie) == 0:
         return None
+
+    # Equalise segment lengths
+    [get_coordinates(CD_geometry.equalise_LineString_segment_lenghts(LineString(shoreline), seg_len)) for shoreline in shorelines]
     
     # Initialise geodataframe with shoreline coordinates and corresponding sea level
     # combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'coords'], geometry='coords') # trigger future warning when concatenating
