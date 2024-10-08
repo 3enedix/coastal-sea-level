@@ -4,6 +4,7 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 from shapely import get_coordinates, LineString
+import pdb
 
 def combine_cassie(path, folders, epsg):
     '''
@@ -114,9 +115,12 @@ def waterline_method_period(rs_shoreline, ssh, tidal_corr, startdate, enddate):
                   and the corresponding sea surface heights
     '''
     dates_cassie, shorelines = extract_shorelines_from_period(rs_shoreline, startdate, enddate)
-
+    if len(dates_cassie) == 0:
+        return None
+    
     # Initialise geodataframe with shoreline coordinates and corresponding sea level
-    combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'coords'], geometry='coords')
+    # combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'coords'], geometry='coords') # trigger future warning when concatenating
+    combined_gdf = gpd.GeoDataFrame()
     for i, cassie_date in enumerate(dates_cassie):
         # Get the sea level observation from the respective month
         idx_ssh, = np.nonzero((cassie_date.year == ssh.index.year) & (cassie_date.month == ssh.index.month))
@@ -128,7 +132,7 @@ def waterline_method_period(rs_shoreline, ssh, tidal_corr, startdate, enddate):
         timediff = tidal_corr.index - pd.to_datetime(cassie_date)
         closest_diff = np.min(np.abs(timediff))
         idx_tcorr = np.nonzero((timediff == closest_diff) | (timediff == -closest_diff))
-        eot_corr = tidal_corr.loc[tidal_corr.index[idx_tcorr], ['corr_eot[cm]']]
+        eot_corr = tidal_corr.loc[tidal_corr.index[idx_tcorr]]
         
         # De-tidal-correct sea level
         ssh_height_decorr = ssh_height_corr.values + eot_corr.values/100
@@ -141,9 +145,9 @@ def waterline_method_period(rs_shoreline, ssh, tidal_corr, startdate, enddate):
             'dates':cassie_date_expanded,
             'ssh':ssh_expanded,
             'coords':gpd.points_from_xy(shoreline_coords[:,1], shoreline_coords[:,0])
-        })
+        }, geometry='coords')
         combined_gdf = pd.concat([combined_gdf, gdf_temp])
-    
+
     combined_gdf = combined_gdf.set_index('dates')
     return combined_gdf
 
