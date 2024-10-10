@@ -76,7 +76,7 @@ def waterline_method_single(sl_date, shoreline, seg_len, ssh, tidal_corr):
         return combined_gdf
 
     # Equalise segment lengths
-    shoreline = get_coordinates(CD_geometry.equalise_LineString_segment_lenghts(LineString(shoreline), seg_len))
+    shoreline = get_coordinates(CD_geometry.equalise_LineString_segment_lengths(LineString(shoreline), seg_len))
     
     ssh_height_corr = ssh.loc[ssh.index[idx_ssh]]
     
@@ -127,7 +127,7 @@ def waterline_method_period(rs_shoreline, seg_len, ssh, tidal_corr, startdate, e
         return None
 
     # Equalise segment lengths
-    [get_coordinates(CD_geometry.equalise_LineString_segment_lenghts(LineString(shoreline), seg_len)) for shoreline in shorelines]
+    [get_coordinates(CD_geometry.equalise_LineString_segment_lengths(LineString(shoreline), seg_len)) for shoreline in shorelines]
     
     # Initialise geodataframe with shoreline coordinates and corresponding sea level
     # combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'coords'], geometry='coords') # trigger future warning when concatenating
@@ -155,8 +155,10 @@ def waterline_method_period(rs_shoreline, seg_len, ssh, tidal_corr, startdate, e
         gdf_temp = gpd.GeoDataFrame({
             'dates':cassie_date_expanded,
             'ssh':ssh_expanded,
-            'coords':gpd.points_from_xy(shoreline_coords[:,1], shoreline_coords[:,0])
+            'coords':gpd.points_from_xy(shoreline_coords[:,0], shoreline_coords[:,1])
         }, geometry='coords')
+        # if combined_gdf.empty | gdf_temp.empty:
+        #     pdb.set_trace()
         combined_gdf = pd.concat([combined_gdf, gdf_temp])
 
     combined_gdf = combined_gdf.set_index('dates')
@@ -179,7 +181,7 @@ def extract_shorelines_from_period(rs_shoreline, startdate, enddate):
     edate = pd.to_datetime(enddate, utc=True)
     
     idx_cassie, = np.nonzero(np.array([(_ > sdate) & (_ < edate) for _ in rs_shoreline['dates']]))
-    print(str(len(idx_cassie)) + ' images between ' + str(sdate) + ' and ' + str(edate))
+    # print(str(len(idx_cassie)) + ' images between ' + str(sdate) + ' and ' + str(edate))
     
     dates_cassie = np.array(rs_shoreline['dates'])[idx_cassie]
     shorelines = [rs_shoreline['shorelines'][_] for _ in idx_cassie]
