@@ -25,15 +25,19 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
     median_sl - LineString of the median shoreline
     '''
     # Get the longest shoreline as basis for the transects
-    dist = []
+    dist = []    
     for sl in shorelines:
-        dist.append(distance(Point(sl[0]), Point(sl[-1])))
+        if sl.size == 0:
+            continue
+        else:
+            dist.append(distance(Point(sl[0]), Point(sl[-1])))
     idx_long, = np.nonzero(dist == np.max(dist))[0]
     long_sl = LineString(shorelines[idx_long])
     smooth_sl = smooth_LineString(long_sl, n=100)
     
     # Create transects
-    transects_gdf =create_transects(smooth_sl, spacing=spacing, transect_length=transect_length)
+    # if np.unique(get_coordinates(smooth_sl)).size < 4:
+    transects_gdf = create_transects(smooth_sl, spacing=spacing, transect_length=transect_length)
     
     # Compute intersections between shorelines and transects, get the median of all intersections per transects
     nr_transects = len(transects_gdf)
@@ -336,7 +340,7 @@ def dist_meter_to_dist_deg(dist_m):
     R = 6371e3 # Earth radius [m]
     return (180 * dist_m) / (R * np.pi)
 
-def equalise_LineString_segment_lenghts(line_orig, seg_length):
+def equalise_LineString_segment_lengths(line_orig, seg_length):
     '''
     Equalise the segment lengths of a LineString, so that all segments
     have the exact same length. Uses interpolation, therefore the output
@@ -354,12 +358,14 @@ def equalise_LineString_segment_lenghts(line_orig, seg_length):
     line_seg - LineString
     '''
     total_length = line_orig.length
+    if total_length == 0:
+        return None
     # Number of segments needed
     num_segments = int(total_length / seg_length)
     # Generate evenly spaced points along the LineString
     # Include the start (0) and end (total_length)
     distances = np.linspace(0, total_length, num_segments + 1)
     new_points = [line_orig.interpolate(distance) for distance in distances]
-    
+
     line_seg = LineString(new_points)
     return line_seg
