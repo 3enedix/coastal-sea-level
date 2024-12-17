@@ -5,6 +5,7 @@ from shapely.ops import polygonize, unary_union
 from shapely import Point, LineString, MultiLineString, MultiPoint, Polygon, get_coordinates, segmentize, distance, intersection, buffer
 import geopandas as gpd
 import geojson
+from pyproj import CRS, Transformer
 
 import pdb
 
@@ -253,7 +254,7 @@ def get_rotated_boundary_box(array):
 
     return(corners)
 
-def get_area_covered_by_shorelines(shorelines, buffer_size=250):
+def get_area_covered_by_shorelines(shorelines, alpha, buffer_size=250):
     '''
     Get the outer boundary of an area defined by a set of shorelines,
     expanded by a buffer zone
@@ -262,6 +263,7 @@ def get_area_covered_by_shorelines(shorelines, buffer_size=250):
     Input
     -----
     shorelines - List of nx2-arrays with n shoreline coordinates (x,y)
+    alpha - Parameter for alpha shape (how much slack around the concave hull)
     buffer_size - Buffer in [m/degree] (depends on reference system) to expand
 
     Output
@@ -270,9 +272,9 @@ def get_area_covered_by_shorelines(shorelines, buffer_size=250):
     
     '''
     lines = [LineString(_) for _ in shorelines]
-    poly = concave_hull_alpha_shape(lines, alpha=100)
+    poly = concave_hull_alpha_shape(lines, alpha=alpha)
     # !!! might end up in a MultiPolygon
-    poly_buffered = buffer(poly, buffer_size)    
+    poly_buffered = buffer(poly, buffer_size)
     return poly_buffered
 
 def create_target_grid(poly, resolution=100):
@@ -314,17 +316,30 @@ def switch_polygon_xy(poly):
     poly_lon = get_coordinates(poly)[:,1]
     return Polygon(list(zip(poly_lon, poly_lat)))
 
-def cut_DEM_to_target_area(dem, varname, target_poly, source, epsg_dem, epsg_target):
+def switch_linestring_xy(line):
+    line_lon = get_coordinates(line)[:,0]
+    line_lat = get_coordinates(line)[:,1]
+    return LineString(list(zip(line_lat, line_lon)))
+
+def transform_polygon(poly, epsg_old, epsg_new):    
+    crs_old = CRS.from_epsg(epsg_old)
+    crs_new = CRS.from_epsg(epsg_new)
+    transformer = Transformer.from_crs(crs_old, crs_new)
+    poly_coords = get_coordinates(poly)
+    poly_coords_t = [transformer.transform(_[0], _[1]) for _ in poly_coords]
+    
+    return(Polygon(poly_coords_t))
+
+def cut_DEM_to_target_area(dem, varname, target_poly, source):
     '''
     Extract area within a polygon from a global DEM.
+    ! DEM and polygon have to be in the same CRS.
 
     Input
     dem: Global DEM as xarray Dataset
     varname: The variable name that contains the elevation data
     target_poly: Shapely polygon, where to extract the data
     source: String, e.g. 'gebco'
-    epsg_dem: string with EPSG code of the DEM
-    epsg_target: string with EPSG code of the target area
 
     Output
     dem_gdf: GeoDataFrame, one Point per row, including elevation and source
@@ -334,8 +349,6 @@ def cut_DEM_to_target_area(dem, varname, target_poly, source, epsg_dem, epsg_tar
     dem_gdf = gpd.GeoDataFrame({
                 'elevation':dem_df[varname],
                 }, geometry=gpd.points_from_xy(dem_df.x, dem_df.y))
-    dem_gdf = dem_gdf.set_crs(epsg_dem)
-    dem_gdf = dem_gdf.to_crs(epsg_target)
 
     dem_gdf = dem_gdf[dem_gdf.intersects(target_poly)]
     dem_gdf['source'] = source
