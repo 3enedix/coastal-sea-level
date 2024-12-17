@@ -8,7 +8,7 @@ import geojson
 
 import pdb
 
-def median_shoreline_from_transect_intersections(shorelines, spacing=100, transect_length=5000):
+def median_shoreline_from_transect_intersections(shorelines, spacing=100, transect_length=5000, smooth_factor=100):
     '''
     From a set of shorelines, get the median shoreline
     as the median of the intersections of the shorelines
@@ -20,6 +20,7 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
     shorelines - List of nx2-arrays with n shoreline coordinates (x,y)
     spacing - spacing of the created transects
     transect_length - length of the created transectss
+    smooth_factor - filter length, how strong the base shoreline (basis for the transects) should be smoothed
 
     Output
     median_sl - LineString of the median shoreline
@@ -33,7 +34,7 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
             dist.append(distance(Point(sl[0]), Point(sl[-1])))
     idx_long, = np.nonzero(dist == np.max(dist))[0]
     long_sl = LineString(shorelines[idx_long])
-    smooth_sl = smooth_LineString(long_sl, n=100)
+    smooth_sl = smooth_LineString(long_sl, n=smooth_factor)
     
     # Create transects
     # if np.unique(get_coordinates(smooth_sl)).size < 4:
@@ -143,7 +144,8 @@ def create_transects(shoreline, spacing=100, transect_length=5000, save_path=Non
     Transects are saved to geojson if save_path and save_fn are passed
     '''
     sl_seg = segmentize(shoreline, spacing)
-    trans_gdf = gpd.GeoDataFrame(columns=['name', 'transect'], geometry='transect').set_index('name')
+    # trans_gdf = gpd.GeoDataFrame(columns=['name', 'transect'], geometry='transect').set_index('name')
+    trans_gdf = gpd.GeoDataFrame()
     featureList = []
     nr = 1 # transect number
     for i in range(1, len(sl_seg.coords)-1): # i=index of the point through which the transect should go
@@ -156,6 +158,8 @@ def create_transects(shoreline, spacing=100, transect_length=5000, save_path=Non
     
         point_seawards = dist_angle_to_coords(seg1[1], transect_length/2, polar_angle_new)
         point_landwards = dist_angle_to_coords(seg1[1], -transect_length/2, polar_angle_new)
+        if (len(point_seawards) == 0) | (len(point_landwards) == 0):
+            continue
         
         trans_temp = gpd.GeoDataFrame(
             {'name':nr,
@@ -164,13 +168,13 @@ def create_transects(shoreline, spacing=100, transect_length=5000, save_path=Non
             index=[0]).set_index('name')
         trans_gdf = pd.concat([trans_gdf, trans_temp])
 
-        if (save_path != None) & (save_fn != None):
+        if (save_path != None) and (save_fn != None):
             trans_line_temp = geojson.LineString([point_landwards, point_seawards])
             trans_feature_temp = geojson.Feature(geometry = trans_line_temp, properties = {'name': str(nr)})
             featureList.append(trans_feature_temp)
         nr = nr + 1  
         
-    if (save_path != None) & (save_fn != None):
+    if (save_path != None) and (save_fn != None):
         transects = geojson.FeatureCollection(featureList)
         with open(save_path + save_fn, 'w') as f:
             geojson.dump(transects, f)
@@ -310,27 +314,29 @@ def switch_polygon_xy(poly):
     poly_lon = get_coordinates(poly)[:,1]
     return Polygon(list(zip(poly_lon, poly_lat)))
 
-def cut_DEM_to_target_area(dem, varname, target_poly, source):
+def cut_DEM_to_target_area(dem, varname, target_poly, source, epsg_dem, epsg_target):
     '''
-    Reduce DEM data to an area defined by a shapely polygon.
-    
+    Extract area within a polygon from a global DEM.
+
     Input
-    -----
-    dem - xarray Dataset with the original DEM
-    varname - name of the xarray Dataset variable that contains the elevation information
-    target_poly - shapely Polygon
-    source - string for an extra column to indicate the name of the original DEM
+    dem: Global DEM as xarray Dataset
+    varname: The variable name that contains the elevation data
+    target_poly: Shapely polygon, where to extract the data
+    source: String, e.g. 'gebco'
+    epsg_dem: string with EPSG code of the DEM
+    epsg_target: string with EPSG code of the target area
 
     Output
-    -----
-    dem_gdf - geopandas GeoDataFrame with Points(x,y), elevation and source
+    dem_gdf: GeoDataFrame, one Point per row, including elevation and source
     '''
     dem_df = dem.to_dataframe().reset_index()
     dem_df = dem_df.rename(columns={'lat':'y', 'lon':'x'})
     dem_gdf = gpd.GeoDataFrame({
                 'elevation':dem_df[varname],
                 }, geometry=gpd.points_from_xy(dem_df.x, dem_df.y))
-    
+    dem_gdf = dem_gdf.set_crs(epsg_dem)
+    dem_gdf = dem_gdf.to_crs(epsg_target)
+
     dem_gdf = dem_gdf[dem_gdf.intersects(target_poly)]
     dem_gdf['source'] = source
     
