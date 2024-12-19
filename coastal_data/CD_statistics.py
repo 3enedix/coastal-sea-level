@@ -29,6 +29,11 @@ def moving_average(ts, n):
     
     return ts_sm
 
+def three_sigma_outlier_rejection(ts):
+    sigma3 = 3*std(ts)
+    ts_red = ts[np.abs(ts-np.nanmedian(ts)) <= sigma3]
+    return ts_red
+
 def compute_trend(x, y):
     '''
     Estimates the trend of a linear function estimated with least squares through a given set of points.
