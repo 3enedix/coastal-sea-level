@@ -2,12 +2,13 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 from shapely import Point
+from scipy import stats
 
-from coastal_data import CD_statistics
+from coastal_data import CD_statistics, CD_helper_functions
 
 import pdb
 
-def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered, temp_average='ME'):
+def get_altimetry_timeseries(alt_data, labels, epsg, tg, gridsize, period_covered, temp_average='ME'):
     '''
     From along-track altimetry data, generate a timeseries.
 
@@ -16,6 +17,7 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered, t
     alt_data - xarray Dataset (from netcdf)
     labels - dict
     epsg - dict
+    tg - pandas Series of corrected tide gauge data (corrected for IB and VLM) with DatetimeIndex
     gridsize - dict
     period_covered - dict
     temp_average - string, period over which to average in pd.Grouper
@@ -30,8 +32,7 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered, t
                            'mssh':alt_data[labels['mssh']],
                            'sla':alt_data[labels['ssh']] - alt_data[labels['mssh']],
                             },
-                       geometry = gpd.points_from_xy(alt_data[labels['lon']], alt_data[labels['lat']]))
-    
+                       geometry = gpd.points_from_xy(alt_data[labels['lon']], alt_data[labels['lat']]))    
     alt_gdf = alt_gdf.set_index(pd.to_datetime(alt_data[labels['time']], utc=True))
     
     alt_gdf = alt_gdf.set_crs(epsg['in'])
@@ -43,7 +44,7 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered, t
     alt_gdf, centers = chessboard_binning(alt_gdf, gridsize)
     alt_gdf = get_distance_to_cell_centers(alt_gdf, centers) # is there another way to add a single column that is easier on the memory? Does this store alt_gdf 2 times?
 
-    # Statistics per cell (for now only min and max date of the timeseries)
+    # Statistics per cell
     cell_numbers = np.sort((alt_gdf['cell'].dropna().unique()))
     cell_stats = pd.DataFrame(np.nan, index=pd.Index(cell_numbers, name='cell'),
                             columns=['date_min', 'date_max', 'number_values(months)', 'R', 'p',
@@ -57,12 +58,53 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered, t
     # cell_stats = cell_stats.astype({'date_min':'datetime64[us]'})
     
     for cell, df in alt_gdf.groupby('cell'):
-        # Altimetry timeseries
+        # Get one altimetry timeseries per cell
         df_red = df.copy()
         df_red['sla_red'] = CD_statistics.three_sigma_outlier_rejection(df['sla'])
+        # df_red_des_det = remove_season_and_trend(df_red)
 
+        # Temporal averages weighted with inverse distance to cell
+        df_temp_av = pd.DataFrame()
+        for time, df_period in df_red.groupby(pd.Grouper(freq=temp_average)):
+            if len(df_period) > 0:
+                weights = 1/df_period['dist2center']
+                temp_av = (df_period['sla_red'] * weights).sum()/weights.sum()
+            else:
+                continue
+            df_temp_av_temp = pd.DataFrame({'temp_av':temp_av}, index=[time])
+            if not df_temp_av_temp.empty:
+                df_temp_av = pd.concat([df_temp_av, df_temp_av_temp])
+                
+        # Comparison statistics between altimetry and tide gauge
+        if len(df_temp_av) >= 5:
+            fill_cell_stats(cell_stats, cell, tg, df_temp_av, df_red, temp_average)
+        
+            # trends altimetry
+            x_alt = CD_helper_functions.datetime_to_decimal_numbers(df_temp_av['temp_av'].index)
+            trend_alt = CD_statistics.compute_trend(x_alt, df_temp_av['temp_av'].values*1000) # [mm/year]
+        
+            # trend PSMSL for same time period
+            idx_tg_in_alt_period = np.where((tg.index > df_temp_av['temp_av'].index[0]) \
+                                   & (tg.index < df_temp_av['temp_av'].index[-1]))
+
+            if len(idx_tg_in_alt_period[0]) >= 5:
+                tg_red_to_alt = tg.iloc[idx_tg_in_alt_period]
+                x_tg = CD_helper_functions.datetime_to_decimal_numbers(tg_red_to_alt.index)
+
+                trend_tg = CD_statistics.compute_trend(x_tg, tg_red_to_alt.values*10)
+            else:
+                trend_tg = np.nan
+        else:
+            trend_alt = np.nan
+        
+        cell_stats.loc[cell, ('alt_trend')] = trend_alt
+        cell_stats.loc[cell, ('tg_trend')] = trend_tg
+        cell_stats.loc[cell, ('trend_diff')] = trend_alt - trend_tg
         cell_stats.loc[cell, ('date_min')] = pd.to_datetime(df_red.index.min())
         cell_stats.loc[cell, ('date_max')] = pd.to_datetime(df_red.index.max())
+        cell_stats.loc[cell, ('number_values(months)')] = len(df_temp_av.index)
+
+        # !!! Would be good to store df_temp_av somewhere for later extraction of cells
     
     # Identify cells that cover the minimum period
     date_begin_latest = pd.to_datetime(period_covered['min'], utc=True)
@@ -94,7 +136,7 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered, t
                                               }, index=[time]).set_index('time')
         alt_ex_temp_av = pd.concat([alt_ex_temp_av, alt_ex_temp_av_temp])
     
-    return alt_ex_temp_av
+    return alt_ex_temp_av, cell_stats
 
 # def remove_season_and_trend(ts):
 #     '''
@@ -108,10 +150,10 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered, t
 #     l_corr = l - model
 #     return l_corr
 
-# def interpolate_tg_to_alt(alt_index, tg_index, tg_data):
-#     tg_at_alt_time_interp = np.interp(alt_index, tg_index, tg_data)
-#     tg_at_alt_time = pd.Series(tg_at_alt_time_interp).set_axis(alt_index)
-#     return tg_at_alt_time
+def interpolate_tg_to_alt(alt_index, tg_index, tg_data):
+    tg_at_alt_time_interp = np.interp(alt_index, tg_index, tg_data)
+    tg_at_alt_time = pd.Series(tg_at_alt_time_interp).set_axis(alt_index)
+    return tg_at_alt_time
 
 def regular_vector(data_min, data_max, spacing_desired):
     '''
@@ -174,8 +216,31 @@ def get_distance_to_cell_centers(alt_gdf, centers):
     
     return alt_gdf
 
+def compute_RMSE(sla, tg):
+    sla_red = sla - np.nanmean(sla)
+    tg_red = tg - np.nanmean(tg)
+    rmse = np.sqrt(((sla_red - tg_red) **2).sum()/(len(sla_red)-1))    
+    return rmse
 
-
+def fill_cell_stats(cell_stats, cell, tg_data, df_temp_av, df_red, temp_average):
+    # bring tide gauge data to the same time stamps
+    tg_at_alt_time = interpolate_tg_to_alt(df_red.index, tg_data.index, tg_data)
+    tg_mon = tg_at_alt_time.groupby(pd.Grouper(freq=temp_average)).mean()
+    # remove values in tg_mon where month/year combination is not in df_temp_av
+    tg_mon = tg_mon.loc[tg_mon.index.isin(df_temp_av.index)]
+    
+    # remove rows that contain NaN in tg_mon
+    idx = np.where(np.isnan(tg_mon))[0]    
+    df_temp_av = df_temp_av.drop(tg_mon.index[idx])
+    tg_mon = tg_mon.drop(tg_mon.index[idx])
+    
+    # correlation
+    R_temp, p_temp = stats.pearsonr(df_temp_av['temp_av'].values, tg_mon.values)
+    cell_stats.loc[cell, ('R')] = R_temp
+    cell_stats.loc[cell, ('p')] = p_temp
+    
+    # RMSE
+    cell_stats.loc[cell, ('RMSE')] = compute_RMSE(df_temp_av['temp_av'], tg_mon/100)
 
 
 
