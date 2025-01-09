@@ -7,6 +7,8 @@ import geopandas as gpd
 import geojson
 from pyproj import CRS, Transformer
 
+from coastal_data import CD_statistics
+
 import pdb
 
 def median_shoreline_from_transect_intersections(shorelines, spacing=100, transect_length=5000, smooth_factor=100):
@@ -65,6 +67,46 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
     
     median_sl = LineString(transect_median)
     return median_sl
+
+def shoreline_outlier_rejection(shorelines, ref_line, epsg, t=2):
+    '''
+    Input
+    -----
+    shorelines - array of nx2 arrays with the shoreline coordinates
+    ref_line - shapely LineString approximating the shoreline over the entire coastal stretch
+    epsg - float
+    t - threshold parameter. The threshold is computed as t * std, (std of distances to reference shoreline),
+    The shoreline points inside that distance (< t * std) are kept.
+
+    Output
+    -----
+    shorelines_red - array of nx2 arrays with the remaining shoreline coordinates without outliers
+    '''
+    if epsg != 4326:
+        ref_line = switch_linestring_xy(ref_line)
+        
+    dists = {} # to keep the relationship with c_shorelines
+    all_dists = [] # to compute the std of all distances
+    for i, shoreline in enumerate(shorelines):
+        dist_temp = [distance(Point(_), ref_line) for _ in shoreline]
+        dists[i] = dist_temp
+        all_dists = all_dists + dist_temp
+
+    std = CD_statistics.std(all_dists)
+    thresh = t*std
+    
+    shorelines_red = np.empty_like(shorelines)
+    
+    for i, shoreline in enumerate(shorelines):
+        idx = np.where(dists[i] <= thresh)
+        shorelines_red[i] = shoreline[idx]
+
+    # Compute percentage of discarded shoreline points
+    n_disc = (all_dists > thresh).sum()
+    perc_disc = round(n_disc / len(all_dists),2)*100
+    print(f'{perc_disc}% of shoreline points were discarded.')
+
+    return shorelines_red
 
 def concave_hull_alpha_shape(points, alpha=0.01):
     '''
