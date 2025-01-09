@@ -7,7 +7,7 @@ from coastal_data import CD_statistics
 
 import pdb
 
-def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered):
+def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered, temp_average='ME'):
     '''
     From along-track altimetry data, generate a timeseries.
 
@@ -18,21 +18,21 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered):
     epsg - dict
     gridsize - dict
     period_covered - dict
+    temp_average - string, period over which to average in pd.Grouper
+    (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
 
     Output
     ------
+    alt_ex_temp_av - pandas DataFrame with columns time, sla_temp_av, ssh_temp_av and msss_temp_av
     '''
-
-    # Convert data into geodataframe
-    alt_df = alt_data.to_dataframe().reset_index()
     alt_gdf = gpd.GeoDataFrame({
-                               'ssh':alt_df[labels['ssh']],
-                               'mssh':alt_df[labels['mssh']],
-                               'sla':alt_df[labels['ssh']] - alt_df[labels['mssh']],
-                                },
-                           geometry = gpd.points_from_xy(alt_df[labels['lon']], alt_df[labels['lat']]))
+                           'ssh':alt_data[labels['ssh']],
+                           'mssh':alt_data[labels['mssh']],
+                           'sla':alt_data[labels['ssh']] - alt_data[labels['mssh']],
+                            },
+                       geometry = gpd.points_from_xy(alt_data[labels['lon']], alt_data[labels['lat']]))
     
-    alt_gdf = alt_gdf.set_index(pd.to_datetime(alt_df[labels['time']], utc=True))
+    alt_gdf = alt_gdf.set_index(pd.to_datetime(alt_data[labels['time']], utc=True))
     
     alt_gdf = alt_gdf.set_crs(epsg['in'])
     alt_gdf = alt_gdf.to_crs(epsg['out'])
@@ -41,13 +41,13 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered):
 
     # Chessboard binning
     alt_gdf, centers = chessboard_binning(alt_gdf, gridsize)
-    alt_gdf = get_distance_to_cell_centers(alt_gdf, centers)
+    alt_gdf = get_distance_to_cell_centers(alt_gdf, centers) # is there another way to add a single column that is easier on the memory? Does this store alt_gdf 2 times?
 
     # Statistics per cell (for now only min and max date of the timeseries)
     cell_numbers = np.sort((alt_gdf['cell'].dropna().unique()))
-    cell_stats = pd.DataFrame(np.nan, index=pd.Index(cell_numbers, name='cell'),\
-                            columns=['date_min', 'date_max', 'number_values(months)', 'R_psmsl', 'p_psmsl', \
-                           'RMSE_psmsl', 'alt_trend', 'psmsl_trend', 'trend_diff'])
+    cell_stats = pd.DataFrame(np.nan, index=pd.Index(cell_numbers, name='cell'),
+                            columns=['date_min', 'date_max', 'number_values(months)', 'R', 'p',
+                                     'RMSE', 'alt_trend', 'tg_trend', 'trend_diff'])
 
     # Attempts to avoid the dtype incompatible future warning, but stays Nattype
     # cell_stats['date_min'] = pd.to_datetime(cell_stats['date_min'])
@@ -68,26 +68,50 @@ def get_altimetry_timeseries(alt_data, labels, epsg, gridsize, period_covered):
     date_begin_latest = pd.to_datetime(period_covered['min'], utc=True)
     date_end_earliest = pd.to_datetime(period_covered['max'], utc=True)
     idx_long, = np.where((cell_stats['date_min'] <= date_begin_latest) & (cell_stats['date_max'] >= date_end_earliest))
-    # cell_stats_long = cell_stats.iloc[idx_long]
+    cell_stats_long = cell_stats.iloc[idx_long]
+
+    idx_long_in_altgdf = np.where(alt_gdf.cell.isin(cell_stats.iloc[idx_long].index))
+    alt_gdf_long = alt_gdf.iloc[idx_long_in_altgdf]
+
+    # Extract timeseries of temporal averages
+    # Average over all cells if there is no other quality criterion (no tide gauge comparison):
+    df_red_ex = alt_gdf_long.copy()
+    df_red_ex['sla_red'] = CD_statistics.three_sigma_outlier_rejection(df_red_ex['sla'])
+    df_red_ex['ssh_red'] = CD_statistics.three_sigma_outlier_rejection(df_red_ex['ssh'])
+    # outlier rejection for mssh?
     
-    return alt_gdf
+    # Temporal averages weighted with inverse distance to cell
+    alt_ex_temp_av = pd.DataFrame()
+    for time, df_month in df_red_ex.groupby(pd.Grouper(freq=temp_average)):
+        weights = 1/df_month['dist2center']
+        sla_temp_av = (df_month['sla_red'] * weights).sum()/weights.sum()
+        ssh_temp_av = (df_month['ssh_red'] * weights).sum()/weights.sum()
+        mss_temp_av = (df_month['mssh'] * weights).sum()/weights.sum()
+        alt_ex_temp_av_temp = pd.DataFrame({'time': time,
+                                               'sla_temp_av':sla_temp_av,
+                                               'ssh_temp_av':ssh_temp_av,
+                                               'msss_temp_av':mss_temp_av
+                                              }, index=[time]).set_index('time')
+        alt_ex_temp_av = pd.concat([alt_ex_temp_av, alt_ex_temp_av_temp])
+    
+    return alt_ex_temp_av
 
-def remove_season_and_trend(ts):
-    '''
-    Remove trend and seasonal signal
-    '''
-    f = 1 # frequency [years]
-    l = ts.dropna()
-    t = l.index.year + (l.index.dayofyear - 1)/365.25
-    amplitude, phase, trend, offset = CD_statistics.compute_periodic_signal_and_trend(t, l, f)
-    model = amplitude * np.sin(2*np.pi*f * t + phase) + trend*t + offset
-    l_corr = l - model
-    return l_corr
+# def remove_season_and_trend(ts):
+#     '''
+#     Remove trend and seasonal signal
+#     '''
+#     f = 1 # frequency [years]
+#     l = ts.dropna()
+#     t = l.index.year + (l.index.dayofyear - 1)/365.25
+#     amplitude, phase, trend, offset = CD_statistics.compute_periodic_signal_and_trend(t, l, f)
+#     model = amplitude * np.sin(2*np.pi*f * t + phase) + trend*t + offset
+#     l_corr = l - model
+#     return l_corr
 
-def interpolate_tg_to_alt(alt_index, tg_index, tg_data):
-    tg_at_alt_time_interp = np.interp(alt_index, tg_index, tg_data)
-    tg_at_alt_time = pd.Series(tg_at_alt_time_interp).set_axis(alt_index)
-    return tg_at_alt_time
+# def interpolate_tg_to_alt(alt_index, tg_index, tg_data):
+#     tg_at_alt_time_interp = np.interp(alt_index, tg_index, tg_data)
+#     tg_at_alt_time = pd.Series(tg_at_alt_time_interp).set_axis(alt_index)
+#     return tg_at_alt_time
 
 def regular_vector(data_min, data_max, spacing_desired):
     '''
