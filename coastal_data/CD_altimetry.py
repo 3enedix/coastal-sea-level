@@ -4,13 +4,33 @@ import numpy as np
 from shapely import Point
 from scipy import stats
 
+import matplotlib.pyplot as plt
+
+from cartopy.feature import LAND
+import cartopy.crs as ccrs
+
+
 from coastal_data import CD_statistics, CD_helper_functions
 
 import pdb
 
-def get_altimetry_timeseries(alt_data, labels, epsg, tg, gridsize, period_covered, temp_average='ME'):
+# matplotlib fontsizes
+SMALL_SIZE = 15
+MEDIUM_SIZE = 20
+BIGGER_SIZE = 25
+plt.rc('font', size=MEDIUM_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=MEDIUM_SIZE)    # fontsize of the axes title
+plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=SMALL_SIZE)   # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALL_SIZE)   # fontsize of the tick labels
+plt.rc('legend', fontsize=MEDIUM_SIZE)   # legend fontsize
+plt.rc('figure', titlesize=MEDIUM_SIZE)  # fontsize of the figure title
+
+def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, period_covered, temp_average='ME'):
     '''
-    From along-track altimetry data, generate a timeseries.
+    Create a timeseries from along-track altimetry data
+    that fits best to a nearby tide gauge
+    in terms of correlation, RMSE and trend difference.
 
     Input
     ------
@@ -41,7 +61,7 @@ def get_altimetry_timeseries(alt_data, labels, epsg, tg, gridsize, period_covere
     # opt: filter out points in certain areas (provide mask)
 
     # Chessboard binning
-    alt_gdf, centers = chessboard_binning(alt_gdf, gridsize)
+    alt_gdf, centers, x_vec, y_vec = chessboard_binning(alt_gdf, gridsize)
     alt_gdf = get_distance_to_cell_centers(alt_gdf, centers) # is there another way to add a single column that is easier on the memory? Does this store alt_gdf 2 times?
 
     # Statistics per cell
@@ -115,12 +135,40 @@ def get_altimetry_timeseries(alt_data, labels, epsg, tg, gridsize, period_covere
     idx_long_in_altgdf = np.where(alt_gdf.cell.isin(cell_stats.iloc[idx_long].index))
     alt_gdf_long = alt_gdf.iloc[idx_long_in_altgdf]
 
+    # Maps of correlation, RMSE and trend difference
+    fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
+    plot_map(ax1, centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', label='R')
+    ax1.set_title("Correlation")
+    fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
+    plot_map(ax2, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', label='RMSE [m]')
+    ax2.set_title("RMSE")
+    fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
+    plot_map(ax3, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', label='Trend difference [mm/year]')
+    ax3.set_title("Trend difference")
+    plt.show(block=False)
+
+    # List 10 cells with highest R, lowest RMSE and smallest trend difference
+    nr = 10 # show the x best candidates
+    print(cell_stats['R'].iloc[idx_long].sort_values().iloc[-nr:])
+    print(cell_stats['RMSE'].iloc[idx_long].sort_values().iloc[:nr])
+    print(np.abs(cell_stats['trend_diff'].iloc[idx_long]).sort_values().iloc[:nr])
+
+    # Get user input, which cells to extract
+    cell_ex = list(map(int, input("Enter cell numbers to extract, separated by space: ").split()))
+
+    # Get cells from user input
+    idx_ex = np.empty(0)
+    for cell in cell_ex:
+        idx_temp, = np.where(alt_gdf['cell'] == cell)
+        idx_ex = np.hstack([idx_ex,idx_temp])
+    
+    alt_gdf_ex = alt_gdf.iloc[idx_ex]
+
     # Extract timeseries of temporal averages
     # Average over all cells if there is no other quality criterion (no tide gauge comparison):
-    df_red_ex = alt_gdf_long.copy()
+    df_red_ex = alt_gdf_ex.copy()
     df_red_ex['sla_red'] = CD_statistics.three_sigma_outlier_rejection(df_red_ex['sla'])
     df_red_ex['ssh_red'] = CD_statistics.three_sigma_outlier_rejection(df_red_ex['ssh'])
-    # outlier rejection for mssh?
     
     # Temporal averages weighted with inverse distance to cell
     alt_ex_temp_av = pd.DataFrame()
@@ -130,13 +178,13 @@ def get_altimetry_timeseries(alt_data, labels, epsg, tg, gridsize, period_covere
         ssh_temp_av = (df_month['ssh_red'] * weights).sum()/weights.sum()
         mss_temp_av = (df_month['mssh'] * weights).sum()/weights.sum()
         alt_ex_temp_av_temp = pd.DataFrame({'time': time,
-                                               'sla_temp_av':sla_temp_av,
-                                               'ssh_temp_av':ssh_temp_av,
-                                               'msss_temp_av':mss_temp_av
+                                           'sla_temp_av':sla_temp_av,
+                                           'ssh_temp_av':ssh_temp_av,
+                                           'msss_temp_av':mss_temp_av
                                               }, index=[time]).set_index('time')
         alt_ex_temp_av = pd.concat([alt_ex_temp_av, alt_ex_temp_av_temp])
     
-    return alt_ex_temp_av, cell_stats
+    return alt_ex_temp_av
 
 # def remove_season_and_trend(ts):
 #     '''
@@ -201,7 +249,7 @@ def chessboard_binning(alt_gdf, gridsize):
         
             cell_nr = cell_nr + 1
         
-    return alt_gdf, centers
+    return alt_gdf, centers, x_vec, y_vec
 
 def get_distance_to_cell_centers(alt_gdf, centers):
     dist = np.zeros(len(alt_gdf))
@@ -242,7 +290,52 @@ def fill_cell_stats(cell_stats, cell, tg_data, df_temp_av, df_red, temp_average)
     # RMSE
     cell_stats.loc[cell, ('RMSE')] = compute_RMSE(df_temp_av['temp_av'], tg_mon/100)
 
+def reformat_chess_data(cell_stats, param, x_vec, y_vec):
+    '''
+    cell_stats
+    param, e.g. 'R'
+         
+    This function does 2 things:
+        1. Adding nans for the cells which don't contain data
+        2. Reshapes the values in a way that plotting with pcolormesh colors the right fields on the map.
+    '''
+    cells_full = np.arange((len(y_vec)-1) * (len(x_vec)-1)) + 1
+    empty_cells = [_ for _ in cells_full if _ not in cell_stats.index]
+    empty_cells = np.asarray(empty_cells)
+    empty_cells_idx = empty_cells -1
+    
+    chess_stats_full = cell_stats[param].values
+    for idx in empty_cells_idx:
+        chess_stats_full = np.insert(chess_stats_full, idx, np.nan)
 
+    chess_stats_full_re = np.reshape(chess_stats_full, ((len(x_vec)-1,len(y_vec)-1)))
+    chess_stats_full_re = np.transpose(chess_stats_full_re)
+    
+    return chess_stats_full_re
+
+def plot_map(ax, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_gdf, vmin=None, vmax=None, cmap='Blues', label=''):
+    '''
+    first create fig and ax like:
+        fig = plt.figure(figsize=(12,12))
+        ax = plt.axes(projection=ccrs.PlateCarree())
+    '''
+    data_re = reformat_chess_data(cell_stats, param, x_vec, y_vec)
+    crs_32631 = ccrs.epsg('32631')    
+    ax.gridlines(draw_labels=True, crs=ccrs.PlateCarree())
+    ax.add_feature(LAND, edgecolor = 'darkgray', facecolor = "lightgray", zorder=2)
+    plot = ax.pcolormesh(x_vec, y_vec, data_re, transform=crs_32631, cmap=cmap, vmin = vmin, vmax = vmax)
+    ax.scatter(alt_gdf.geometry.x, alt_gdf.geometry.y, marker='+', s=1, c='darkgrey', transform=crs_32631)
+    
+    # plot cell numbers
+    for cell_nr in centers.index:
+        if cell_nr in cell_stats_long.index:
+            text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=18,
+                    transform=crs_32631, bbox=dict(boxstyle="square", fill=False))
+        else:
+            text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=18,
+                    transform=crs_32631)
+
+    plt.colorbar(plot, shrink=1, pad=0.1, label=label, ax=ax)
 
 
 
