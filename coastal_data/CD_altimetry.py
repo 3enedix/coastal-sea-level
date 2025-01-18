@@ -47,6 +47,8 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     ------
     alt_ex_temp_av - pandas DataFrame with columns time, sla_temp_av, ssh_temp_av and msss_temp_av
     '''
+    plt.close('all')
+    
     alt_gdf = gpd.GeoDataFrame({
                            'ssh':alt_data[labels['ssh']],
                            'mssh':alt_data[labels['mssh']],
@@ -123,9 +125,7 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
         cell_stats.loc[cell, ('date_min')] = pd.to_datetime(df_red.index.min())
         cell_stats.loc[cell, ('date_max')] = pd.to_datetime(df_red.index.max())
         cell_stats.loc[cell, ('number_values(months)')] = len(df_temp_av.index)
-
-        # !!! Would be good to store df_temp_av somewhere for later extraction of cells
-    
+   
     # Identify cells that cover the minimum period
     date_begin_latest = pd.to_datetime(period_covered['min'], utc=True)
     date_end_earliest = pd.to_datetime(period_covered['max'], utc=True)
@@ -135,26 +135,23 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     idx_long_in_altgdf = np.where(alt_gdf.cell.isin(cell_stats.iloc[idx_long].index))
     alt_gdf_long = alt_gdf.iloc[idx_long_in_altgdf]
 
-    # Maps of correlation, RMSE and trend difference
-    fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax1, centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', label='R')
-    ax1.set_title("Correlation")
-    fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax2, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', label='RMSE [m]')
-    ax2.set_title("RMSE")
-    fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax3, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', label='Trend difference [mm/year]')
-    ax3.set_title("Trend difference")
-    plt.show(block=False)
-
+    
     # List 10 cells with highest R, lowest RMSE and smallest trend difference
     nr = 10 # show the x best candidates
     print(cell_stats['R'].iloc[idx_long].sort_values().iloc[-nr:])
     print(cell_stats['RMSE'].iloc[idx_long].sort_values().iloc[:nr])
     print(np.abs(cell_stats['trend_diff'].iloc[idx_long]).sort_values().iloc[:nr])
 
-    # Get user input, which cells to extract
-    cell_ex = list(map(int, input("Enter cell numbers to extract, separated by space: ").split()))
+    # Maps of correlation, RMSE and trend difference
+    fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
+    plot_map(ax1, centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
+    fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
+    plot_map(ax2, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
+    fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
+    plot_map(ax3, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
+
+    # Get user input which cells to extract
+    cell_ex = list(map(int, input("Enter cell numbers to extract, separated by space (e.g. 96 95 83 82 70 69): ").split()))
 
     # Get cells from user input
     idx_ex = np.empty(0)
@@ -313,12 +310,16 @@ def reformat_chess_data(cell_stats, param, x_vec, y_vec):
     
     return chess_stats_full_re
 
-def plot_map(ax, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_gdf, vmin=None, vmax=None, cmap='Blues', label=''):
+def plot_map(ax, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_gdf, vmin=None, vmax=None, cmap='Blues', title='', label=''):
     '''
     first create fig and ax like:
         fig = plt.figure(figsize=(12,12))
         ax = plt.axes(projection=ccrs.PlateCarree())
     '''
+    plt.ion()
+    manager = plt.get_current_fig_manager()
+    manager.window.showMaximized()   
+    
     data_re = reformat_chess_data(cell_stats, param, x_vec, y_vec)
     crs_32631 = ccrs.epsg('32631')    
     ax.gridlines(draw_labels=True, crs=ccrs.PlateCarree())
@@ -335,7 +336,14 @@ def plot_map(ax, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_
             text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=18,
                     transform=crs_32631)
 
+    ax.set_title(title)
+    ax.text(0, -0.1, 'Press any button to continue.', transform=ax.transAxes)
+
     plt.colorbar(plot, shrink=1, pad=0.1, label=label, ax=ax)
+    plt.draw()
+    plt.pause(0.01)
+    plt.waitforbuttonpress()
+    plt.ioff()
 
 
 
