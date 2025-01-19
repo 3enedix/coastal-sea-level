@@ -26,7 +26,11 @@ plt.rc('ytick', labelsize=SMALL_SIZE)   # fontsize of the tick labels
 plt.rc('legend', fontsize=MEDIUM_SIZE)   # legend fontsize
 plt.rc('figure', titlesize=MEDIUM_SIZE)  # fontsize of the figure title
 
-def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, period_covered, temp_average='ME'):
+# ===================================================================================
+# Get Altimetry Timeseries
+# ===================================================================================
+
+def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, period_covered, freq_average='ME'):
     '''
     Create a timeseries from along-track altimetry data
     that fits best to a nearby tide gauge
@@ -35,17 +39,22 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     Input
     ------
     alt_data - xarray Dataset (from netcdf)
-    labels - dict
-    epsg - dict
+    labels - dict, under which label in the dataset are which variables stored
+        e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
+    epsg - dict with input and output epsg codes
+        e.g.: epsg = {'in':4326, 'out':28992}
     tg - pandas Series of corrected tide gauge data (corrected for IB and VLM) with DatetimeIndex
-    gridsize - dict
-    period_covered - dict
-    temp_average - string, period over which to average in pd.Grouper
-    (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
+    gridsize - dict, gridsize in x- and y-direction to bin timeseries into chessboard-cells
+        e.g.: gridsize = {'x':25, 'y':25} # [km]
+    period_covered - dict, min and max dates of the timeseries used for comparison with the tide gauge
+        (to ensure that timeseries are long enough)
+        e.g.: period_covered = {'min':'2002-07-01', 'max':'2020-03-31'}
+    freq_average - string, period over which to average in pd.Grouper
+        (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
 
     Output
     ------
-    alt_ex_temp_av - pandas DataFrame with columns time, sla_temp_av, ssh_temp_av and msss_temp_av
+    alt_ex_temp_av - pandas DataFrame with columns time, sla_temp_av, ssh_temp_av and mss_temp_av
     '''
     plt.close('all')
     
@@ -87,7 +96,7 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
 
         # Temporal averages weighted with inverse distance to cell
         df_temp_av = pd.DataFrame()
-        for time, df_period in df_red.groupby(pd.Grouper(freq=temp_average)):
+        for time, df_period in df_red.groupby(pd.Grouper(freq=freq_average)):
             if len(df_period) > 0:
                 weights = 1/df_period['dist2center']
                 temp_av = (df_period['sla_red'] * weights).sum()/weights.sum()
@@ -99,7 +108,7 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
                 
         # Comparison statistics between altimetry and tide gauge
         if len(df_temp_av) >= 5:
-            fill_cell_stats(cell_stats, cell, tg, df_temp_av, df_red, temp_average)
+            fill_cell_stats(cell_stats, cell, tg, df_temp_av, df_red, freq_average)
         
             # trends altimetry
             x_alt = CD_helper_functions.datetime_to_decimal_numbers(df_temp_av['temp_av'].index)
@@ -153,7 +162,7 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     # Get user input which cells to extract
     cell_ex = list(map(int, input("Enter cell numbers to extract, separated by space (e.g. 96 95 83 82 70 69): ").split()))
 
-    # Get cells from user input
+    # Get data in the requested cells
     idx_ex = np.empty(0)
     for cell in cell_ex:
         idx_temp, = np.where(alt_gdf['cell'] == cell)
@@ -169,7 +178,7 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     
     # Temporal averages weighted with inverse distance to cell
     alt_ex_temp_av = pd.DataFrame()
-    for time, df_month in df_red_ex.groupby(pd.Grouper(freq=temp_average)):
+    for time, df_month in df_red_ex.groupby(pd.Grouper(freq=freq_average)):
         weights = 1/df_month['dist2center']
         sla_temp_av = (df_month['sla_red'] * weights).sum()/weights.sum()
         ssh_temp_av = (df_month['ssh_red'] * weights).sum()/weights.sum()
@@ -177,11 +186,52 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
         alt_ex_temp_av_temp = pd.DataFrame({'time': time,
                                            'sla_temp_av':sla_temp_av,
                                            'ssh_temp_av':ssh_temp_av,
-                                           'msss_temp_av':mss_temp_av
+                                           'mss_temp_av':mss_temp_av
                                               }, index=[time]).set_index('time')
         alt_ex_temp_av = pd.concat([alt_ex_temp_av, alt_ex_temp_av_temp])
     
     return alt_ex_temp_av
+
+def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg, poly, freq_average='ME'):
+    '''
+    If no tide gauge available, simply average all points
+    inside a user-defined polygon.
+
+    Input
+    -----
+    alt_data - xarray Dataset (from netcdf)
+    labels - dict, under which label in the dataset are which variables stored
+        e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
+    epsg - dict with input and output epsg codes
+        e.g.: epsg = {'in':4326, 'out':28992}
+
+    freq_average - string, period over which to average in pd.Grouper
+        (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
+
+    Output
+    ------
+    alt_temp_av - pandas DataFrame with columns time, ssh, mssh and sla
+    '''
+    alt_gdf = gpd.GeoDataFrame({
+                           'ssh':alt_data[labels['ssh']],
+                           'mssh':alt_data[labels['mssh']],
+                           'sla':alt_data[labels['ssh']] - alt_data[labels['mssh']],
+                            },
+                       geometry = gpd.points_from_xy(alt_data[labels['lon']], alt_data[labels['lat']]))    
+    alt_gdf = alt_gdf.set_index(pd.to_datetime(alt_data[labels['time']], utc=True))
+    
+    alt_gdf = alt_gdf.set_crs(epsg['in'])
+    alt_gdf = alt_gdf.to_crs(epsg['out'])
+
+    alt_gdf_red = alt_gdf[alt_gdf.intersects(poly)]
+    alt_gdf_red = alt_gdf_red.drop('geometry', axis=1)
+    
+    alt_temp_av = alt_gdf_red.groupby(pd.Grouper(freq=freq_average)).mean()
+    return alt_temp_av
+    
+# ===================================================================================
+# Helper Functions
+# ===================================================================================
 
 # def remove_season_and_trend(ts):
 #     '''
@@ -267,10 +317,10 @@ def compute_RMSE(sla, tg):
     rmse = np.sqrt(((sla_red - tg_red) **2).sum()/(len(sla_red)-1))    
     return rmse
 
-def fill_cell_stats(cell_stats, cell, tg_data, df_temp_av, df_red, temp_average):
+def fill_cell_stats(cell_stats, cell, tg_data, df_temp_av, df_red, freq_average):
     # bring tide gauge data to the same time stamps
     tg_at_alt_time = interpolate_tg_to_alt(df_red.index, tg_data.index, tg_data)
-    tg_mon = tg_at_alt_time.groupby(pd.Grouper(freq=temp_average)).mean()
+    tg_mon = tg_at_alt_time.groupby(pd.Grouper(freq=freq_averages)).mean()
     # remove values in tg_mon where month/year combination is not in df_temp_av
     tg_mon = tg_mon.loc[tg_mon.index.isin(df_temp_av.index)]
     
@@ -286,6 +336,10 @@ def fill_cell_stats(cell_stats, cell, tg_data, df_temp_av, df_red, temp_average)
     
     # RMSE
     cell_stats.loc[cell, ('RMSE')] = compute_RMSE(df_temp_av['temp_av'], tg_mon/100)
+
+# ===================================================================================
+# Plotting
+# ===================================================================================
 
 def reformat_chess_data(cell_stats, param, x_vec, y_vec):
     '''
