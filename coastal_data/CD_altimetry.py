@@ -153,11 +153,11 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
 
     # Maps of correlation, RMSE and trend difference
     fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax1, centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
+    plot_map(ax1, epsg['out'], centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
     fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax2, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
+    plot_map(ax2, epsg['out'], centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
     fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax3, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
+    plot_map(ax3, epsg['out'], centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
 
     # Get user input which cells to extract
     cell_ex = list(map(int, input("Enter cell numbers to extract, separated by space (e.g. 96 95 83 82 70 69): ").split()))
@@ -225,6 +225,9 @@ def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg, poly, freq_ave
 
     alt_gdf_red = alt_gdf[alt_gdf.intersects(poly)]
     alt_gdf_red = alt_gdf_red.drop('geometry', axis=1)
+
+    alt_gdf_red['sla'] = CD_statistics.three_sigma_outlier_rejection(alt_gdf_red['sla'])
+    alt_gdf_red['ssh'] = CD_statistics.three_sigma_outlier_rejection(alt_gdf_red['ssh'])
     
     alt_temp_av = alt_gdf_red.groupby(pd.Grouper(freq=freq_average)).mean()
     return alt_temp_av
@@ -320,7 +323,7 @@ def compute_RMSE(sla, tg):
 def fill_cell_stats(cell_stats, cell, tg_data, df_temp_av, df_red, freq_average):
     # bring tide gauge data to the same time stamps
     tg_at_alt_time = interpolate_tg_to_alt(df_red.index, tg_data.index, tg_data)
-    tg_mon = tg_at_alt_time.groupby(pd.Grouper(freq=freq_averages)).mean()
+    tg_mon = tg_at_alt_time.groupby(pd.Grouper(freq=freq_average)).mean()
     # remove values in tg_mon where month/year combination is not in df_temp_av
     tg_mon = tg_mon.loc[tg_mon.index.isin(df_temp_av.index)]
     
@@ -364,7 +367,7 @@ def reformat_chess_data(cell_stats, param, x_vec, y_vec):
     
     return chess_stats_full_re
 
-def plot_map(ax, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_gdf, vmin=None, vmax=None, cmap='Blues', title='', label=''):
+def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_gdf, vmin=None, vmax=None, cmap='Blues', title='', label=''):
     '''
     first create fig and ax like:
         fig = plt.figure(figsize=(12,12))
@@ -375,20 +378,20 @@ def plot_map(ax, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_
     manager.window.showMaximized()   
     
     data_re = reformat_chess_data(cell_stats, param, x_vec, y_vec)
-    crs_32631 = ccrs.epsg('32631')    
+    projection = ccrs.epsg(epsg)    
     ax.gridlines(draw_labels=True, crs=ccrs.PlateCarree())
     ax.add_feature(LAND, edgecolor = 'darkgray', facecolor = "lightgray", zorder=2)
-    plot = ax.pcolormesh(x_vec, y_vec, data_re, transform=crs_32631, cmap=cmap, vmin = vmin, vmax = vmax)
-    ax.scatter(alt_gdf.geometry.x, alt_gdf.geometry.y, marker='+', s=1, c='darkgrey', transform=crs_32631)
+    plot = ax.pcolormesh(x_vec, y_vec, data_re, transform=projection, cmap=cmap, vmin = vmin, vmax = vmax)
+    ax.scatter(alt_gdf.geometry.x, alt_gdf.geometry.y, marker='+', s=1, c='darkgrey', transform=projection)
     
     # plot cell numbers
     for cell_nr in centers.index:
         if cell_nr in cell_stats_long.index:
             text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=18,
-                    transform=crs_32631, bbox=dict(boxstyle="square", fill=False))
+                    transform=projection, bbox=dict(boxstyle="square", fill=False))
         else:
             text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=18,
-                    transform=crs_32631)
+                    transform=projection)
 
     ax.set_title(title)
     ax.text(0, -0.1, 'Press any button to continue.', transform=ax.transAxes)
