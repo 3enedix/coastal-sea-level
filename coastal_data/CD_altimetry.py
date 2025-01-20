@@ -1,3 +1,5 @@
+import os
+import xarray as xr
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -27,6 +29,122 @@ plt.rc('legend', fontsize=MEDIUM_SIZE)   # legend fontsize
 plt.rc('figure', titlesize=MEDIUM_SIZE)  # fontsize of the figure title
 
 # ===================================================================================
+# OpenADB ALES Data Preparation
+# ===================================================================================
+
+def combine_openadb_nc_files(path):
+    '''
+    Combines all netCDF files in all subfolders under 'path' into one .nc-file.
+    Additionally, tweaks variable names and datetimes for further usage.
+    
+    Input
+    -----
+    path - string of parent folder (subfolders per mission and per pass)
+    
+    Output
+    -----
+    data_alt - xarray Dataset (can then be saved as netcdf)
+    '''
+    data_alt = xr.Dataset()
+    # this loop takes quite a long time (~ 15 minutes on my laptop)
+    for root, dirs, files in os.walk(path):        
+        for fname in files:
+            if fname.endswith('.nc'):
+                data_temp = xr.open_dataset(os.path.join(root, fname))
+
+                # Rename all variables to contain only the characters before the dot
+                varnames = {}
+                for varname_old in data_temp.keys():
+                    varname_new = varname_old[0 : varname_old.find('.')]
+                    varnames[varname_old] = varname_new
+                data_temp = data_temp.rename(varnames)
+
+                # Convert Julian days to datetime
+                data_temp.jday.attrs['units'] = "days since 2000-01-01  12:00:00 UTC"
+                data_temp = xr.decode_cf(data_temp)
+                data_temp['time'] = data_temp['jday'].to_index()
+
+                # add cycle and pass as variables
+                data_temp['cycle_number'] = xr.full_like(data_temp.glon, data_temp.cycle, dtype=int) # not the best solution, copies also the attributes
+                data_temp['pass_number'] = xr.full_like(data_temp.glon, data_temp.pass_number, dtype=int)
+
+                # add missione name as variable
+                data_temp['mission'] = xr.full_like(data_temp.glon, data_temp.long_mission, dtype='U25')
+
+                # Merge everything into one dataset
+                data_alt = data_alt.merge(data_temp)
+    return data_alt
+
+def select_missions(data_alt, missions):
+    '''
+    From the OpenADB merged dataset, select which missions to use.
+
+    Input
+    -----
+    data_alt - xarray Dataset, merged with combine_openadb_nc_files
+    mission - list of strings with the mission names to use
+
+    Output
+    -----
+    data_mis - xarray Dataset, same as data_alt but containing only the requested missions
+    '''
+
+    idx = np.empty((0), dtype='int')
+    for mission in missions:
+        idx_temp = np.where(data_alt.mission == mission)[0]
+        idx = np.concatenate((idx, idx_temp))
+    data_mis = data_alt.isel({'time':idx})
+    data_mis = data_mis.sortby('time')
+    
+    return data_mis
+
+def clean_openadb_ales(ales):
+    '''
+    Clean data according to the instructions on the OpenADB website:
+    https://openadb.dgfi.tum.de/en/products/adaptive-leading-edge-subwaveform-retracker/
+
+    Input
+    -----
+    ales - xarray Dataset, merged with combine_openadb_nc_files
+
+    Output
+    -----
+    ales - xarray Dataset
+    '''
+    idx_dist, = np.where((ales.distance >= 3) | (np.isnan(ales.distance)))
+    idx_sla, = np.where(abs(ales['ssh'] - ales['mssh']) <= 2.5)
+    idx_swh, = np.where((ales['swh'] <= 11) | (np.isnan(ales['swh'])))
+    idx_stdalt, = np.where((ales['stdalt'] <= 0.2) | np.isnan(ales['stdalt']))
+    
+    ales = ales.isel({'time':idx_dist, 'time':idx_sla, 'time':idx_swh, 'time':idx_stdalt})
+
+    return ales
+
+# ===================================================================================
+# RADS Data Preparation
+# ===================================================================================
+
+def clean_rads(rads_data):
+    '''
+    Apply (reduced) cleaning for dist to coast and SLA
+    as in clean_openadb_ales.
+
+    Input
+    -----
+    rads_data - xarray Dataset
+
+    Output
+    -----
+    rads_data - xarray Dataset
+    '''
+    idx_dist, = np.where((rads_data.dist_coast >= 3) | (np.isnan(rads_data.dist_coast)))
+    idx_sla, = np.where(abs(rads_data.sla) <= 2.5)
+    
+    rads_data = rads_data.isel({'time':idx_dist, 'time':idx_sla})
+
+    return rads_data
+
+# ===================================================================================
 # Get Altimetry Timeseries
 # ===================================================================================
 
@@ -36,6 +154,9 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     that fits best to a nearby tide gauge
     in terms of correlation, RMSE and trend difference.
 
+    The function presents maps and high-scores lists for each parameter,
+    and asks the user to manually select the cells from which to extract the timeseries.
+
     Input
     ------
     alt_data - xarray Dataset (from netcdf)
@@ -43,6 +164,8 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
         e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
     epsg - dict with input and output epsg codes
         e.g.: epsg = {'in':4326, 'out':28992}
+        ! cell numbers change for different crs !
+        ! out epsg can not be WGS84 (epgs 4326) !
     tg - pandas Series of corrected tide gauge data (corrected for IB and VLM) with DatetimeIndex
     gridsize - dict, gridsize in x- and y-direction to bin timeseries into chessboard-cells
         e.g.: gridsize = {'x':25, 'y':25} # [km]
@@ -59,12 +182,16 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     plt.close('all')
     
     alt_gdf = gpd.GeoDataFrame({
-                           'ssh':alt_data[labels['ssh']],
-                           'mssh':alt_data[labels['mssh']],
-                           'sla':alt_data[labels['ssh']] - alt_data[labels['mssh']],
-                            },
+                           'mssh':alt_data[labels['mssh']]
+                                                       },
                        geometry = gpd.points_from_xy(alt_data[labels['lon']], alt_data[labels['lat']]))    
     alt_gdf = alt_gdf.set_index(pd.to_datetime(alt_data[labels['time']], utc=True))
+    if labels['sla'] == None:
+        alt_gdf['sla'] = alt_data[labels['ssh']] - alt_data[labels['mssh']]
+        alt_gdf['ssh'] = alt_data[labels['ssh']]
+    else:
+        alt_gdf['sla'] = alt_data[labels['sla']]
+        alt_gdf['ssh'] = np.nan
     
     alt_gdf = alt_gdf.set_crs(epsg['in'])
     alt_gdf = alt_gdf.to_crs(epsg['out'])
@@ -143,7 +270,6 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
 
     idx_long_in_altgdf = np.where(alt_gdf.cell.isin(cell_stats.iloc[idx_long].index))
     alt_gdf_long = alt_gdf.iloc[idx_long_in_altgdf]
-
     
     # List 10 cells with highest R, lowest RMSE and smallest trend difference
     nr = 10 # show the x best candidates
@@ -204,7 +330,8 @@ def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg, poly, freq_ave
         e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
     epsg - dict with input and output epsg codes
         e.g.: epsg = {'in':4326, 'out':28992}
-
+    poly - shapely polygon containing the area over which to average all points
+        ! coordinates of the polygon must be the same crs as epsg['out'] !
     freq_average - string, period over which to average in pd.Grouper
         (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
 
