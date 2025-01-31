@@ -6,6 +6,7 @@ from shapely import Point, LineString, MultiLineString, MultiPoint, Polygon, get
 import geopandas as gpd
 import geojson
 from pyproj import CRS, Transformer
+import matplotlib.pyplot as plt
 
 from coastal_data import CD_statistics
 
@@ -68,33 +69,24 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
     median_sl = LineString(transect_median)
     return median_sl
 
-def get_DEM_contour(dem, elev=0, tarea=None):
+def get_DEM_contour(x, y, elev, h=0, tarea=None):
     '''
     Extract the contour at a certain elevation from a DEM.
     
     Input
     -----
-    dem - xarray DataSet, with the elevation data stored in variable 'band_data'
+    x, y: pandas Series with x an dy coordinates of all grid points
+    elev - pandas Series with the corresponding elevation values
+    h  - int/float, elevation from which to extract the contour
     tarea - shapely polygon of the target area (only the part of the contour inside the target area is kept)
         Providing the target area is optional.
-    elev - int/float, elevation from which to extract the contour
 
     Output
     -----
     z_ls - shapely LineString of the contour cut to the target area (if supplied)
-    '''
-    XX, YY = np.meshgrid(dem.x, dem.y)
-
-    XX = np.reshape(XX, -1)
-    YY = np.reshape(YY, -1)
-    data = np.reshape(dem.band_data.values, -1)
-    
-    df = pd.DataFrame({'x':XX, 'y':YY, 'data':data})
-    df = df.dropna()
-    
-    data = np.reshape(dem.band_data.values, -1)
+    '''   
     # Get contour with matplotlib
-    zcontour = plt.tricontour(df.x, df.y, df.data, levels=[elev])
+    zcontour = plt.tricontour(x, y, elev, levels=[h])
     plt.close()
 
     # Turn matplotlib collection to shapely LineStrings
