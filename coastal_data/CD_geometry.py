@@ -68,6 +68,46 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
     median_sl = LineString(transect_median)
     return median_sl
 
+def get_DEM_contour(dem, elev=0, tarea=None):
+    '''
+    Extract the contour at a certain elevation from a DEM.
+    
+    Input
+    -----
+    dem - xarray DataSet, with the elevation data stored in variable 'band_data'
+    tarea - shapely polygon of the target area (only the part of the contour inside the target area is kept)
+        Providing the target area is optional.
+    elev - int/float, elevation from which to extract the contour
+
+    Output
+    -----
+    z_ls - shapely LineString of the contour cut to the target area (if supplied)
+    '''
+    XX, YY = np.meshgrid(dem.x, dem.y)
+
+    XX = np.reshape(XX, -1)
+    YY = np.reshape(YY, -1)
+    data = np.reshape(dem.band_data.values, -1)
+    
+    df = pd.DataFrame({'x':XX, 'y':YY, 'data':data})
+    df = df.dropna()
+    
+    data = np.reshape(dem.band_data.values, -1)
+    # Get contour with matplotlib
+    zcontour = plt.tricontour(df.x, df.y, df.data, levels=[elev])
+    plt.close()
+
+    # Turn matplotlib collection to shapely LineStrings
+    path = zcontour.collections[0].get_paths()[0]
+
+    z_ls = LineString(path.vertices)
+
+    # Get only the part inside the target area
+    if tarea != None:
+        z_ls = intersection(z_ls, tarea)
+
+    return z_ls
+
 def shoreline_outlier_rejection(shorelines, ref_line, epsg, t=2):
     '''
     Input
