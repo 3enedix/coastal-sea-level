@@ -278,12 +278,19 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     print(np.abs(cell_stats['trend_diff'].iloc[idx_long]).sort_values().iloc[:nr])
 
     # Maps of correlation, RMSE and trend difference
+    savepath = '/home/bene/Downloads/' # !#$^%! hard coded path
+    
     fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
     plot_map(ax1, epsg['out'], centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
+    plt.savefig(savepath+'correlation.png', dpi=300, bbox_inches='tight')
+    
     fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
     plot_map(ax2, epsg['out'], centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
+    plt.savefig(savepath+'RMSE.png', dpi=300, bbox_inches='tight')
+    
     fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
     plot_map(ax3, epsg['out'], centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
+    plt.savefig(savepath+'trend_diff.png', dpi=300, bbox_inches='tight')
 
     # Get user input which cells to extract
     cell_ex = list(map(int, input("Enter cell numbers to extract, separated by space (e.g. 96 95 83 82 70 69): ").split()))
@@ -528,6 +535,8 @@ def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec
     plt.pause(0.01)
     plt.waitforbuttonpress()
     plt.ioff()
+
+    
 
 
 
