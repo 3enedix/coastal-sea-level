@@ -217,6 +217,7 @@ def build_designmatrix_nn(x_state, int_pc):
     
     A = lil_array((n_obs, n_unk))
     A[idx_obs, idx_unk] = 1
+    A = A.tocsr()
 
     return A
 
