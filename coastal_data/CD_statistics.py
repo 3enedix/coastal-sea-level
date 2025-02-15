@@ -3,12 +3,83 @@ from scipy.sparse import lil_array, csc_array, linalg
 from scipy.spatial import cKDTree
 from shapely import get_coordinates
 
+# ===================================================================================
+# Metrics to compare two datasets
+# ===================================================================================
+
+def me(diff, print_result=True):
+    '''
+    Mean error
+    diff - array like vector of differences
+    '''
+    me = np.nanmean(diff) # Mean error
+    if print_result:
+        print(f'Mean error: {round(me,2)} m')
+    return me
+
+def mae(diff, print_result=True):
+    '''
+    Mean absolute error
+    diff - array like vector of differences
+    '''
+    mae = np.nanmean(abs(diff))
+    if print_result:
+        print(f'Mean absolute error: {round(mae,2)} m')
+    return mae
+
+def rmse(diff, print_result=True):
+    '''
+    Root mean square error
+    diff - array like vector of differences
+    '''
+    rmse = np.sqrt(np.nanmean(diff**2))
+    if print_result:
+        print(f'Root mean square error: {round(rmse,2)} m')
+    return rmse
+
+def mad_mean(diff, print_result=True):
+    '''
+    Mean absolute deviation from the mean
+    diff - array like vector of differences
+    '''
+    mad_mean = np.nanmean(abs(diff - np.nanmean(diff)))
+    if print_result:
+        print(f'Mean absolute deviation from mean: {round(mad_mean,2)} m')
+    return mad_mean
+
+def mad_med(diff, print_result=True):
+    '''
+    Median absolute deviation from the median
+    diff - array like vector of differences
+    '''
+    mad_med = np.nanmedian(abs(diff - np.nanmedian(diff)))
+    if print_result:
+        print(f'Median absolute deviation from median: {round(mad_med,2)} m')
+    return mad_med
+
+# ===================================================================================
+# Timeseries analysis
+# ===================================================================================
+
 def rms(ts):
     return round(np.sqrt(np.nanmean(ts **2)),3)
 
 def std(ts): # Variation in one timeseries
     err = ts - np.nanmean(ts)
     return rms(err)
+
+def compute_RMSE(ts1, ts2):
+    '''
+    ts1: array, timeseries 1
+    ts2: array, timeseries 2
+    '''
+    if len(ts1) != len(ts2):
+        raise ValueError('Timeseries have different lengths.')
+    
+    ts1_red = ts1 - np.nanmean(ts1)
+    ts2_red = ts2 - np.nanmean(ts2)
+    rmse = np.sqrt(np.mean(ts1_red - ts2_red)**2)   
+    return rmse
 
 def moving_average(ts, n):
     '''
@@ -183,6 +254,10 @@ def first_derivative(x, y, n):
     m = dy / dx
     
     return m
+
+# ===================================================================================
+# Designmatrix
+# ===================================================================================
 
 def build_designmatrix_nn(x_state, int_pc):
     '''
