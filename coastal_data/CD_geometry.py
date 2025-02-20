@@ -404,6 +404,15 @@ def transform_polygon(poly, epsg_old, epsg_new):
     
     return(Polygon(poly_coords_t))
 
+def transform_linestring(linestring, epsg_old, epsg_new):    
+    crs_old = CRS.from_epsg(epsg_old)
+    crs_new = CRS.from_epsg(epsg_new)
+    transformer = Transformer.from_crs(crs_old, crs_new)
+    ls_coords = get_coordinates(linestring)
+    ls_coords_t = [transformer.transform(_[1], _[0]) for _ in ls_coords]
+
+    return(LineString(ls_coords_t))
+
 def cut_DEM_to_target_area(dem, varname, target_poly, source):
     '''
     Extract area within a polygon from a global DEM.
