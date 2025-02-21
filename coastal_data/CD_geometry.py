@@ -100,7 +100,7 @@ def get_DEM_contour(x, y, elev, h=0, tarea=None):
 
     return z_ls
 
-def shoreline_outlier_rejection(shorelines, ref_line, epsg, t=2):
+def shoreline_outlier_rejection(shorelines, ref_line, epsg, t_factor=2):
     '''
     Input
     -----
@@ -114,7 +114,7 @@ def shoreline_outlier_rejection(shorelines, ref_line, epsg, t=2):
     -----
     shorelines_red - array of nx2 arrays with the remaining shoreline coordinates without outliers
     '''
-    if epsg != 4326:
+    if epsg == 4326:
         ref_line = switch_linestring_xy(ref_line)
         
     dists = {} # to keep the relationship with c_shorelines
