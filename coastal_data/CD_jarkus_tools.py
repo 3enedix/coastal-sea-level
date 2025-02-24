@@ -2,8 +2,8 @@ import numpy as np
 from scipy.interpolate import interpn, griddata
 
 def interpolate_regular_grid_onto_JARKUS(x_state, elev_col, lon_jarkus, lat_jarkus):
-    mx = np.unique(x_state.geometry.x)
-    my = np.unique(x_state.geometry.y)
+    mx = np.unique(x_state.geometry.y)
+    my = np.unique(x_state.geometry.x)
     values = x_state[elev_col].values.reshape((len(mx), len(my)))
     interp = interpn((mx, my), values, (lon_jarkus,lat_jarkus))
     return interp

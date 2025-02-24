@@ -125,7 +125,7 @@ def shoreline_outlier_rejection(shorelines, ref_line, epsg, t_factor=2):
         all_dists = all_dists + dist_temp
 
     std = CD_statistics.std(all_dists)
-    thresh = t*std
+    thresh = t_factor*std
     
     shorelines_red = np.empty_like(shorelines)
     

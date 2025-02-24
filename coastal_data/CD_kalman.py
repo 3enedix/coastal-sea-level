@@ -96,7 +96,7 @@ def RTS_smoother(T, xup_0, sigma_xx_up_0, xpred_1, sigma_xx_pred_1, xs_1, sigma_
         b = T @ sigma_xx_up_0
         b = csc_matrix(b)
         Ks = factor(b).T
-    except CholmodNotPositiveDefiniteError:
+    except: # CholmodNotPositiveDefiniteError:
         # Use pseudoinverse from SVD instead
         sigma_xx_pred_1_inv = CD_matrix_tools.pseudoinverse(sigma_xx_pred_1)      
         Ks = sigma_xx_up_0 @ T.T @ sigma_xx_pred_1_inv
