@@ -114,9 +114,6 @@ def shoreline_outlier_rejection(shorelines, ref_line, epsg, t_factor=2):
     -----
     shorelines_red - array of nx2 arrays with the remaining shoreline coordinates without outliers
     '''
-    if epsg == 4326:
-        ref_line = switch_linestring_xy(ref_line)
-        
     dists = {} # to keep the relationship with c_shorelines
     all_dists = [] # to compute the std of all distances
     for i, shoreline in enumerate(shorelines):
@@ -400,7 +397,7 @@ def transform_polygon(poly, epsg_old, epsg_new):
     crs_new = CRS.from_epsg(epsg_new)
     transformer = Transformer.from_crs(crs_old, crs_new)
     poly_coords = get_coordinates(poly)
-    poly_coords_t = [transformer.transform(_[0], _[1]) for _ in poly_coords]
+    poly_coords_t = [transformer.transform(_[1], _[0]) for _ in poly_coords]
     
     return(Polygon(poly_coords_t))
 
