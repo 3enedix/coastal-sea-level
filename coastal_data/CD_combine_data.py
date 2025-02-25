@@ -39,7 +39,7 @@ def combine_cassie(path, folders, epsg):
             datelist.append(date)
     
             sl_4326 = sl['geometry']['coordinates']
-            sl_transformed = [transformer.transform(_[1], _[0]) for _ in sl_4326]
+            sl_transformed = [transformer.transform(_[0], _[1]) for _ in sl_4326]
             sllist_temp = [list(_) for _ in sl_transformed]
     
             sllist.append(np.array(sllist_temp))
