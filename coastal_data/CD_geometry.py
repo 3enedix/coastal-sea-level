@@ -392,6 +392,15 @@ def switch_linestring_xy(line):
     line_lat = get_coordinates(line)[:,1]
     return LineString(list(zip(line_lat, line_lon)))
 
+def transform_general_geom_list(coords, epsg_old, epsg_new):
+    crs_old = CRS.from_epsg(4326)
+    crs_new = CRS.from_epsg(28992)
+    transformer = Transformer.from_crs(crs_old, crs_new)
+    coords_trans = [transformer.transform(_[1], _[0]) for _ in coords]
+    return coords_trans
+
+# ToDo: Replace specific functions to transform polygon/linestring with general geometry transformation function
+###
 def transform_polygon(poly, epsg_old, epsg_new):    
     crs_old = CRS.from_epsg(epsg_old)
     crs_new = CRS.from_epsg(epsg_new)
@@ -409,6 +418,7 @@ def transform_linestring(linestring, epsg_old, epsg_new):
     ls_coords_t = [transformer.transform(_[1], _[0]) for _ in ls_coords]
 
     return(LineString(ls_coords_t))
+###
 
 def cut_DEM_to_target_area(dem, varname, target_poly, source):
     '''
