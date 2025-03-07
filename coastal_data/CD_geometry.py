@@ -1,4 +1,5 @@
 from scipy.spatial import Delaunay
+from scipy.interpolate import griddata
 import numpy as np
 import pandas as pd
 from shapely.ops import polygonize, unary_union
@@ -11,6 +12,10 @@ import matplotlib.pyplot as plt
 from coastal_data import CD_statistics
 
 import pdb
+
+# ===================================================================================
+# Shorelines
+# ===================================================================================
 
 def median_shoreline_from_transect_intersections(shorelines, spacing=100, transect_length=5000, smooth_factor=100):
     '''
@@ -69,37 +74,6 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
     median_sl = LineString(transect_median)
     return median_sl
 
-def get_DEM_contour(x, y, elev, h=0, tarea=None):
-    '''
-    Extract the contour at a certain elevation from a DEM.
-    
-    Input
-    -----
-    x, y: pandas Series with x an dy coordinates of all grid points
-    elev - pandas Series with the corresponding elevation values
-    h  - int/float, elevation from which to extract the contour
-    tarea - shapely polygon of the target area (only the part of the contour inside the target area is kept)
-        Providing the target area is optional.
-
-    Output
-    -----
-    z_ls - shapely LineString of the contour cut to the target area (if supplied)
-    '''   
-    # Get contour with matplotlib
-    zcontour = plt.tricontour(x, y, elev, levels=[h])
-    plt.close()
-
-    # Turn matplotlib collection to shapely LineStrings
-    path = zcontour.collections[0].get_paths()[0]
-
-    z_ls = LineString(path.vertices)
-
-    # Get only the part inside the target area
-    if tarea != None:
-        z_ls = intersection(z_ls, tarea)
-
-    return z_ls
-
 def shoreline_outlier_rejection(shorelines, ref_line, epsg, t_factor=2):
     '''
     Input
@@ -137,69 +111,185 @@ def shoreline_outlier_rejection(shorelines, ref_line, epsg, t_factor=2):
 
     return shorelines_red
 
-def concave_hull_alpha_shape(points, alpha=0.01):
+def equalise_LineString_segment_lengths(line_orig, seg_length):
     '''
-    Code adapted from https://gist.github.com/HTenkanen/49528990d1ab4bcb5562ba01ba6262ef
-    Compute the alpha hull (a concave hull with a bit of
-    slack that can be influenced with the parameter alpha)
-    of a GeoSeries of points.
-    '''
-    coords = get_coordinates(points)
-    tri = Delaunay(coords)
-    triangles = coords[tri.simplices]
-    a = ((triangles[:,0,0] - triangles[:,1,0]) ** 2 + (triangles[:,0,1] - triangles[:,1,1]) ** 2) ** 0.5
-    b = ((triangles[:,1,0] - triangles[:,2,0]) ** 2 + (triangles[:,1,1] - triangles[:,2,1]) ** 2) ** 0.5
-    c = ((triangles[:,2,0] - triangles[:,0,0]) ** 2 + (triangles[:,2,1] - triangles[:,0,1]) ** 2) ** 0.5
-    s = ( a + b + c ) / 2.0
-    areas = (s*(s-a)*(s-b)*(s-c)) ** 0.5
-    circums = a * b * c / (4.0 * areas)
-    filtered = triangles[circums < (1.0 / alpha)]
-    edge1 = filtered[:,(0,1)]
-    edge2 = filtered[:,(1,2)]
-    edge3 = filtered[:,(2,0)]
-    edge_points = np.unique(np.concatenate((edge1,edge2,edge3)), axis = 0).tolist()
-    m = MultiLineString(edge_points)
-    triangles = list(polygonize(m))
-    
-    # return gpd.GeoDataFrame({"geometry": [unary_union(triangles)]}, index=[0])
-    return unary_union(triangles)
-
-def get_polar_angle(seg):
-    '''
-    Compute polar angle of a single line segment.
+    Equalise the segment lengths of a LineString, so that all segments
+    have the exact same length. Uses interpolation, therefore the output
+    LineString is not necessarily the exact overlay of the input LineString
+    (if the input LineString has segments shorter than the desired seg_length
+    the interpolation "cuts off" the edge).
     
     Input
-    seg - List (len=2) with (x,y)-tuples
-    
-    Output
-    polar angle in radians
-    '''
-    x1, y1 = seg[0][0], seg[0][1]
-    x2, y2 = seg[1][0], seg[1][1]
-    
-    delta_x = x2 - x1
-    delta_y = y2 - y1
-    
-    polar_angle = np.arctan2(delta_y, delta_x)
-    return(polar_angle)
+    -----
+    line_orig - LineString
+    seg_length - Desired segment length (float/int)
 
-def dist_angle_to_coords(start_point, dist, polar_angle):
+    Output
+    -----
+    line_seg - LineString
     '''
-    Compute coordinate from distance and polar angle based on a starting point.
+    total_length = line_orig.length
+    if total_length == 0:
+        return None
+    # Number of segments needed
+    num_segments = int(total_length / seg_length)
+    # Generate evenly spaced points along the LineString
+    # Include the start (0) and end (total_length)
+    distances = np.linspace(0, total_length, num_segments + 1)
+    new_points = [line_orig.interpolate(distance) for distance in distances]
+
+    line_seg = LineString(new_points)
+    return line_seg
+
+# ===================================================================================
+# KF DTM target area and grid
+# ===================================================================================
+
+def get_area_covered_by_shorelines(shorelines, alpha, buffer_size=250):
+    '''
+    Get the outer boundary of an area defined by a set of shorelines,
+    expanded by a buffer zone
+    Used to define the target grid for the desired DEM.
+    
+    Input
+    -----
+    shorelines - List of nx2-arrays with n shoreline coordinates (x,y)
+    alpha - Parameter for alpha shape (how much slack around the concave hull)
+    buffer_size - Buffer in [m/degree] (depends on reference system) to expand
+
+    Output
+    -----
+    poly_buffered - shapely Polygon
+    
+    '''
+    lines = [LineString(_) for _ in shorelines]
+    poly = concave_hull_alpha_shape(lines, alpha=alpha)
+    # !!! might end up in a MultiPolygon
+    poly_buffered = buffer(poly, buffer_size)
+    return poly_buffered
+
+def create_target_grid(poly, resolution=100):
+    '''
+    Create a grid inside a pre-defined polygon.
 
     Input
-    start_point - tuple (x,y) (metric)
-    dist - distance (same unit as start_point)
-    polar_angle - polar angle (azimuth) in radians
+    -----
+    poly - Shapely polygon defining the grid area.
+    resolution - grid size in [m/degree] (depends on reference system) (same in x-/y-direction)
+    
+    Ouput
+    -----
+    x, y - List of grid coordinates inside the polygon
+    x_full, y_full - List of grid coordinates inside the boundary box
+    '''
+
+    lonmin, latmin, lonmax, latmax = poly.bounds
+    
+    lon_vec = np.arange(lonmin, lonmax, resolution)
+    lat_vec = np.arange(latmin, latmax, resolution)
+    
+    x_grid, y_grid = np.meshgrid(lon_vec, lat_vec)
+    # x_grid, y_grid = np.round(x_grid, 4), np.round(y_grid, 4)
+    
+    points = MultiPoint(list(zip(x_grid.flatten(),y_grid.flatten())))
+    x_full = [get_coordinates(_)[0][0] for _ in points.geoms]
+    y_full = [get_coordinates(_)[0][1] for _ in points.geoms]
+
+    valid_points = points.intersection(poly)
+    
+    x = [get_coordinates(_)[0][0] for _ in valid_points.geoms]
+    y = [get_coordinates(_)[0][1] for _ in valid_points.geoms]
+
+    return x, y, x_full, y_full
+
+# ===================================================================================
+# DEMs
+# ===================================================================================
+
+def get_DEM_contour(x, y, elev, h=0, tarea=None):
+    '''
+    Extract the contour at a certain elevation from a DEM.
+    
+    Input
+    -----
+    x, y: pandas Series with x an dy coordinates of all grid points
+    elev - pandas Series with the corresponding elevation values
+    h  - int/float, elevation from which to extract the contour
+    tarea - shapely polygon of the target area (only the part of the contour inside the target area is kept)
+        Providing the target area is optional.
 
     Output
-    new coordinate as tuple (x,y)
-    '''
-    
-    x_new = start_point[0] + dist * np.cos(polar_angle)
-    y_new = start_point[1] + dist * np.sin(polar_angle)
+    -----
+    z_ls - shapely LineString of the contour cut to the target area (if supplied)
+    '''   
+    # Get contour with matplotlib
+    zcontour = plt.tricontour(x, y, elev, levels=[h])
+    plt.close()
 
-    return (x_new, y_new)
+    # Turn matplotlib collection to shapely LineStrings
+    path = zcontour.collections[0].get_paths()[0]
+
+    z_ls = LineString(path.vertices)
+
+    # Get only the part inside the target area
+    if tarea != None:
+        z_ls = intersection(z_ls, tarea)
+
+    return z_ls
+
+def cut_DEM_to_target_area(dem, varname, target_poly, source):
+    '''
+    Extract area within a polygon from a global DEM.
+    ! DEM and polygon have to be in the same CRS.
+
+    Input
+    dem: Global DEM as xarray Dataset
+    varname: The variable name that contains the elevation data
+    target_poly: Shapely polygon, where to extract the data
+    source: String, e.g. 'gebco'
+
+    Output
+    dem_gdf: GeoDataFrame, one Point per row, including elevation and source
+    '''    
+    dem_df = dem.to_dataframe().reset_index()
+    dem_df = dem_df.rename(columns={'lat':'y', 'lon':'x'})
+    dem_gdf = gpd.GeoDataFrame({
+                'elevation':dem_df[varname],
+                }, geometry=gpd.points_from_xy(dem_df.x, dem_df.y))
+
+    dem_gdf = dem_gdf[dem_gdf.intersects(target_poly)]
+    dem_gdf = dem_gdf.set_crs(4326)
+    dem_gdf['source'] = source
+    
+    return dem_gdf
+
+def interpolate_dem(dem, x_poly, y_poly):
+    '''
+    Input
+    -----
+    dem: GeoDataFrame, one Point per row, elevation column is called 'elevation'
+    x_poly - List of x-coordinates of the points to interpolate onto
+    y_poly - List of y-coordinates of the points to interpolate onto
+
+    Output
+    -----
+    dem_interp_gdf
+    '''
+    mx = dem.geometry.x
+    my = dem.geometry.y
+    values = dem.elevation
+    dem_interp = griddata(list(zip(mx, my)), values, list(zip(x_poly, y_poly)), 'linear')
+
+    dem_interp_gdf = gpd.GeoDataFrame({
+                    'elevation':dem_interp,
+                    }, geometry=gpd.points_from_xy(x_poly, y_poly))
+    dem_interp_gdf = dem_interp_gdf.dropna()
+
+    return dem_interp_gdf
+
+# ===================================================================================
+# Transects
+# ===================================================================================
 
 def create_transects(shoreline, spacing=100, transect_length=5000, save_path=None, save_fn=None):
     '''
@@ -278,6 +368,74 @@ def define_single_transect(first_point, second_point, transect_length=1000):
 
     return LineString([(x_landwards, y_landwards), (x_seawards, y_seawards)])
 
+# ===================================================================================
+# Helper functions
+# ===================================================================================
+
+def concave_hull_alpha_shape(points, alpha=0.01):
+    '''
+    Code adapted from https://gist.github.com/HTenkanen/49528990d1ab4bcb5562ba01ba6262ef
+    Compute the alpha hull (a concave hull with a bit of
+    slack that can be influenced with the parameter alpha)
+    of a GeoSeries of points.
+    '''
+    coords = get_coordinates(points)
+    tri = Delaunay(coords)
+    triangles = coords[tri.simplices]
+    a = ((triangles[:,0,0] - triangles[:,1,0]) ** 2 + (triangles[:,0,1] - triangles[:,1,1]) ** 2) ** 0.5
+    b = ((triangles[:,1,0] - triangles[:,2,0]) ** 2 + (triangles[:,1,1] - triangles[:,2,1]) ** 2) ** 0.5
+    c = ((triangles[:,2,0] - triangles[:,0,0]) ** 2 + (triangles[:,2,1] - triangles[:,0,1]) ** 2) ** 0.5
+    s = ( a + b + c ) / 2.0
+    areas = (s*(s-a)*(s-b)*(s-c)) ** 0.5
+    circums = a * b * c / (4.0 * areas)
+    filtered = triangles[circums < (1.0 / alpha)]
+    edge1 = filtered[:,(0,1)]
+    edge2 = filtered[:,(1,2)]
+    edge3 = filtered[:,(2,0)]
+    edge_points = np.unique(np.concatenate((edge1,edge2,edge3)), axis = 0).tolist()
+    m = MultiLineString(edge_points)
+    triangles = list(polygonize(m))
+    
+    # return gpd.GeoDataFrame({"geometry": [unary_union(triangles)]}, index=[0])
+    return unary_union(triangles)
+
+def get_polar_angle(seg):
+    '''
+    Compute polar angle of a single line segment.
+    
+    Input
+    seg - List (len=2) with (x,y)-tuples
+    
+    Output
+    polar angle in radians
+    '''
+    x1, y1 = seg[0][0], seg[0][1]
+    x2, y2 = seg[1][0], seg[1][1]
+    
+    delta_x = x2 - x1
+    delta_y = y2 - y1
+    
+    polar_angle = np.arctan2(delta_y, delta_x)
+    return(polar_angle)
+
+def dist_angle_to_coords(start_point, dist, polar_angle):
+    '''
+    Compute coordinate from distance and polar angle based on a starting point.
+
+    Input
+    start_point - tuple (x,y) (metric)
+    dist - distance (same unit as start_point)
+    polar_angle - polar angle (azimuth) in radians
+
+    Output
+    new coordinate as tuple (x,y)
+    '''
+    
+    x_new = start_point[0] + dist * np.cos(polar_angle)
+    y_new = start_point[1] + dist * np.sin(polar_angle)
+
+    return (x_new, y_new)
+
 def smooth_LineString(linestring, n=50):
     '''
     Input
@@ -325,63 +483,6 @@ def get_rotated_boundary_box(array):
 
     return(corners)
 
-def get_area_covered_by_shorelines(shorelines, alpha, buffer_size=250):
-    '''
-    Get the outer boundary of an area defined by a set of shorelines,
-    expanded by a buffer zone
-    Used to define the target grid for the desired DEM.
-    
-    Input
-    -----
-    shorelines - List of nx2-arrays with n shoreline coordinates (x,y)
-    alpha - Parameter for alpha shape (how much slack around the concave hull)
-    buffer_size - Buffer in [m/degree] (depends on reference system) to expand
-
-    Output
-    -----
-    poly_buffered - shapely Polygon
-    
-    '''
-    lines = [LineString(_) for _ in shorelines]
-    poly = concave_hull_alpha_shape(lines, alpha=alpha)
-    # !!! might end up in a MultiPolygon
-    poly_buffered = buffer(poly, buffer_size)
-    return poly_buffered
-
-def create_target_grid(poly, resolution=100):
-    '''
-    Create a grid inside a pre-defined polygon.
-
-    Input
-    -----
-    poly - Shapely polygon defining the grid area.
-    resolution - grid size in [m/degree] (depends on reference system) (same in x-/y-direction)
-    
-    Ouput
-    -----
-    x, y - List of grid coordinates inside the polygon
-    x_full, y_full - List of grid coordinates inside the boundary box
-    '''
-
-    lonmin, latmin, lonmax, latmax = poly.bounds
-    
-    lon_vec = np.arange(lonmin, lonmax, resolution)
-    lat_vec = np.arange(latmin, latmax, resolution)
-    
-    x_grid, y_grid = np.meshgrid(lon_vec, lat_vec)
-    # x_grid, y_grid = np.round(x_grid, 4), np.round(y_grid, 4)
-    
-    points = MultiPoint(list(zip(x_grid.flatten(),y_grid.flatten())))
-    x_full = [get_coordinates(_)[0][0] for _ in points.geoms]
-    y_full = [get_coordinates(_)[0][1] for _ in points.geoms]
-
-    valid_points = points.intersection(poly)
-    
-    x = [get_coordinates(_)[0][0] for _ in valid_points.geoms]
-    y = [get_coordinates(_)[0][1] for _ in valid_points.geoms]
-
-    return x, y, x_full, y_full
-
 def switch_polygon_xy(poly):
     poly_lat = get_coordinates(poly)[:,0]
     poly_lon = get_coordinates(poly)[:,1]
@@ -399,8 +500,6 @@ def transform_general_geom_list(coords, epsg_old, epsg_new):
     coords_trans = [transformer.transform(_[1], _[0]) for _ in coords]
     return coords_trans
 
-# ToDo: Replace specific functions to transform polygon/linestring with general geometry transformation function
-###
 def transform_polygon(poly, epsg_old, epsg_new):    
     crs_old = CRS.from_epsg(epsg_old)
     crs_new = CRS.from_epsg(epsg_new)
@@ -418,63 +517,8 @@ def transform_linestring(linestring, epsg_old, epsg_new):
     ls_coords_t = [transformer.transform(_[1], _[0]) for _ in ls_coords]
 
     return(LineString(ls_coords_t))
-###
-
-def cut_DEM_to_target_area(dem, varname, target_poly, source):
-    '''
-    Extract area within a polygon from a global DEM.
-    ! DEM and polygon have to be in the same CRS.
-
-    Input
-    dem: Global DEM as xarray Dataset
-    varname: The variable name that contains the elevation data
-    target_poly: Shapely polygon, where to extract the data
-    source: String, e.g. 'gebco'
-
-    Output
-    dem_gdf: GeoDataFrame, one Point per row, including elevation and source
-    '''
-    dem_df = dem.to_dataframe().reset_index()
-    dem_df = dem_df.rename(columns={'lat':'y', 'lon':'x'})
-    dem_gdf = gpd.GeoDataFrame({
-                'elevation':dem_df[varname],
-                }, geometry=gpd.points_from_xy(dem_df.x, dem_df.y))
-
-    dem_gdf = dem_gdf[dem_gdf.intersects(target_poly)]
-    dem_gdf['source'] = source
-    
-    return dem_gdf
 
 def dist_meter_to_dist_deg(dist_m):
     R = 6371e3 # Earth radius [m]
     return (180 * dist_m) / (R * np.pi)
 
-def equalise_LineString_segment_lengths(line_orig, seg_length):
-    '''
-    Equalise the segment lengths of a LineString, so that all segments
-    have the exact same length. Uses interpolation, therefore the output
-    LineString is not necessarily the exact overlay of the input LineString
-    (if the input LineString has segments shorter than the desired seg_length
-    the interpolation "cuts off" the edge).
-    
-    Input
-    -----
-    line_orig - LineString
-    seg_length - Desired segment length (float/int)
-
-    Output
-    -----
-    line_seg - LineString
-    '''
-    total_length = line_orig.length
-    if total_length == 0:
-        return None
-    # Number of segments needed
-    num_segments = int(total_length / seg_length)
-    # Generate evenly spaced points along the LineString
-    # Include the start (0) and end (total_length)
-    distances = np.linspace(0, total_length, num_segments + 1)
-    new_points = [line_orig.interpolate(distance) for distance in distances]
-
-    line_seg = LineString(new_points)
-    return line_seg
