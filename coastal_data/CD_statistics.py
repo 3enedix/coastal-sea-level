@@ -68,7 +68,7 @@ def std(ts): # Variation in one timeseries
     err = ts - np.nanmean(ts)
     return rms(err)
 
-def compute_RMSE(ts1, ts2):
+def RMSE_timeseries(ts1, ts2):
     '''
     ts1: array, timeseries 1
     ts2: array, timeseries 2
@@ -78,7 +78,7 @@ def compute_RMSE(ts1, ts2):
     
     ts1_red = ts1 - np.nanmean(ts1)
     ts2_red = ts2 - np.nanmean(ts2)
-    rmse = np.sqrt(np.mean(ts1_red - ts2_red)**2)   
+    rmse = np.sqrt(np.nanmean((ts1_red - ts2_red)**2))   
     return rmse
 
 def moving_average(ts, n):
