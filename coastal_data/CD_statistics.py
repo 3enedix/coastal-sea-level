@@ -144,7 +144,7 @@ def compute_trend(x, y):
     
     return round(xs[0], 4)
 
-def compute_trend_with_error(x, y):
+def compute_trend_with_error(x, y, P=None):
     '''
     Estimates the trend of a linear function estimated with least squares through a given set of points.
     Same as compute_trend, but additionally returns the covariance matrix.
@@ -153,6 +153,7 @@ def compute_trend_with_error(x, y):
     ------------------------
     x: array or list of timestamps in [years]
     y: array or list of values in [units]
+    P: covariance matrix of y-values (optional)    
     
     Output
     ------------------------
@@ -160,7 +161,10 @@ def compute_trend_with_error(x, y):
     covariance matrix (of trend and y-axis-intercept)
     array of differences between observation and model (verbesserungen v)
     '''    
-    
+
+    if P is None:
+        P = np.diag(np.ones(len(y)))
+
     # remove nans
     idx_nan = np.nonzero(np.isnan(y))[0]
     x = np.delete(x, idx_nan)
@@ -172,22 +176,22 @@ def compute_trend_with_error(x, y):
     # Measurements -> rows
     # column 1: partial derivative df/dm = x
     # column 2: partial derivative df/dt = 1
-
-    col1 = x
-    col2 = np.ones(len(y))
-
-    A = np.transpose(np.vstack((col1, col2)))
     
-    N = np.matmul(np.transpose(A), A) # A'A
-    n = np.matmul(np.transpose(A), y) # A'l
-    xs = np.linalg.solve(N,n)
-
+    col1 = x - np.mean(x)
+    col2 = np.ones(len(y))
+    
+    A = np.vstack((col1, col2)).T
+    
+    N = A.T @ P @ A
+    n = A.T @ P @ y
+    xs, _, _, _ = np.linalg.lstsq(N,n, rcond=-1)
+    
     # Compute covariance matrix
     # Verbesserungen v=Ax-b (distance of observations to the estimated regression line)
-    v = np.matmul(A, xs) - y
+    v = A @ xs - y
     n_obs = len(y)
     n_unknown = 2
-    v02 = np.matmul(np.transpose(v), v) / (n_obs - n_unknown) # v'v/f Varianzfaktor a posteriori
+    v02 = (v.T @ v)/ (n_obs - n_unknown) # v'v/f Varianzfaktor a posteriori
     Qxx = np.linalg.inv(N) # Kofaktormatrix der ausgegelichenen Unbekannten
     Cxx = v02 * Qxx # Kovarianzmatrix der ausgegelichenen Unbekannten
     
