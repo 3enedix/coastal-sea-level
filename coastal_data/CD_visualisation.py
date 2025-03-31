@@ -1,7 +1,13 @@
+import pandas as pd
+import numpy as np
+from coastal_data import CD_statistics
+
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
+
+import tabulate
 
 def movie(df, x_poly, y_poly, col_list, first_col, savepath, fn):
     '''
@@ -16,9 +22,9 @@ def movie(df, x_poly, y_poly, col_list, first_col, savepath, fn):
     projection = ccrs.PlateCarree()
     request = cimgt.GoogleTiles(style="satellite")
     fig, ax = plt.subplots(figsize=(15,8), subplot_kw=dict(projection=request.crs));
-    ax.set_extent([5.31, 5.37, 53.41, 53.43], crs=ccrs.PlateCarree())
+    ax.set_extent([5.1, 5.6, 53.32, 53.5], crs=ccrs.PlateCarree())
     ax.gridlines(draw_labels=True, zorder=0, color='lightgrey')
-    zoom = 13
+    zoom = 10
     ax.add_image(request, zoom, alpha=0.7, zorder=0)
     
     # Initial state
@@ -37,3 +43,107 @@ def movie(df, x_poly, y_poly, col_list, first_col, savepath, fn):
     anim.save(filename=savepath+fn, writer="pillow")
 
     return anim
+
+def print_stats(diff, fn=None, path=None):
+    me = CD_statistics.me(diff)
+
+    diff_debias = diff - me
+    print("---De-bias with mean---")
+    me = CD_statistics.me(diff_debias)
+    mae = CD_statistics.mae(diff_debias)
+    rmse = CD_statistics.rmse(diff_debias)
+    mad_mean = CD_statistics.mad_mean(diff_debias)
+    mad_med = CD_statistics.mad_med(diff_debias)
+
+    if path:       
+        with open(f'{path}{fn}.txt', 'w') as f:
+            f.write(f'Mean error: {round(me,2)} m')
+            f.write(f'\nMean absolute error: {round(mae,2)} m')
+            f.write(f'\nMean absolute error: {round(mae,2)} m')
+            f.write(f'\nRoot mean square error: {round(rmse,2)} m')
+            f.write(f'\nMean absolute deviation from mean: {round(mad_mean,2)} m')
+            f.write(f'\nMedian absolute deviation from median: {round(mad_med,2)} m')
+
+def show_diff_table(rts_data, fn=None, path=None):
+    print_result = False
+    stats_list = []
+    all_diffs = {}
+    for year in year_list:
+        idx_year, = np.where(jarkus_years == year)
+        diff = rts_data[str(year)] - jarkus_elev[idx_year, :][0]
+        # all_diffs[year] = diff # for aggregate histogram
+        
+        me_kf = CD_statistics.me(diff, print_result)
+        mae_kf = CD_statistics.mae(diff, print_result)
+        rmse_kf = CD_statistics.rmse(diff, print_result)
+        mad_mean_kf = CD_statistics.mad_mean(diff, print_result)
+        mad_med_kf = CD_statistics.mad_med(diff, print_result)
+    
+        stats_list.append([year, me_kf, mae_kf, rmse_kf, mad_mean_kf, mad_med_kf])
+    print(tabulate.tabulate(stats_list, headers=['Year', 'ME [m]', 'MAE [m]', 'RMSE [m]', 'MAD (mean) [m]', 'MAD (median) [m]'], tablefmt="fancy_grid"))
+    # tablefmt="latex", documentation at https://pypi.org/project/tabulate/
+
+    if path:
+        # Save the print output from tabulate to a text file
+        with open(f'{savepath_partun}{fn}.txt', 'w') as f:
+            f.write(tabulate.tabulate(stats_list, headers=['Year', 'ME [m]', 'MAE [m]', 'RMSE [m]', 'MAD (mean) [m]', 'MAD (median) [m]'], tablefmt="fancy_grid"))
+
+def plot_histogram(diff, title):
+    fig, ax = plt.subplots(figsize=(5,4))
+    ax.hist(diff, bins=50, range=[-25,25])
+    ax.set_title(title)
+    ax.set_xlabel('Diff [m]')
+    ax.set_ylabel('#')
+    ax.grid()
+
+def plot_diff_timeseries(rts_data, title, year_list, jarkus_years, jarkus_gdf):
+    print_result = False
+    all_diffs = {}
+    stats_df = pd.DataFrame(index=year_list)
+    for year in year_list:
+        diff = rts_data[str(year)] - jarkus_gdf[str(year)]
+        all_diffs[str(year)] = diff # for aggregate histogram
+        
+        stats_df.loc[str(year), 'me'] = CD_statistics.me(diff, print_result)
+        stats_df.loc[str(year), 'mae'] = CD_statistics.mae(diff, print_result)
+        stats_df.loc[str(year), 'rmse'] = CD_statistics.rmse(diff, print_result)
+        stats_df.loc[str(year), 'mad_mean'] = CD_statistics.mad_mean(diff, print_result)
+        stats_df.loc[str(year), 'mad_med'] = CD_statistics.mad_med(diff, print_result)        
+    
+    fig, ax = plt.subplots(figsize=(8,4))
+    ax.plot(stats_df.index, stats_df.me, '.-', label='Mean error')
+    ax.plot(stats_df.index, stats_df.mae, '.-', label='Mean absolute error')
+    ax.plot(stats_df.index, stats_df.rmse, '.-', label='Root mean squared error')
+    ax.plot(stats_df.index, stats_df.mad_mean, '.-', label='Mean absolute deviation from mean')
+    ax.plot(stats_df.index, stats_df.mad_med, '.-', label='Mean absolute deviation from median')
+    ax.legend(bbox_to_anchor=(1,1))
+    ax.set_title(title)
+    ax.grid()
+
+    return all_diffs
+
+def plot_map(x, y, data, vminmax, cmap, title):
+    crs_28992 = ccrs.epsg('28992')
+    
+    # request = cimgt.OSM()
+    request = cimgt.GoogleTiles(style="satellite")
+    fig, ax = plt.subplots(figsize=(15,8), subplot_kw=dict(projection=request.crs))
+    ax.set_extent([5.1, 5.6, 53.32, 53.5], crs=ccrs.PlateCarree())
+    ax.gridlines(draw_labels=True, zorder=0, color='lightgrey')
+    zoom = 10
+    ax.add_image(request, zoom, alpha=0.7, zorder=0)
+    
+    plot = ax.scatter(x, y, c=data, marker='.', s=2, transform=crs_28992, cmap=cmap, vmin=vminmax[0], vmax=vminmax[1])
+    
+    plt.title(title)
+    plt.colorbar(plot, shrink=.6, label='[m]', pad=.15)
+
+
+
+
+
+
+
+
+
+        
