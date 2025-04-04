@@ -122,8 +122,15 @@ def plot_diff_timeseries(rts_data, title, year_list, jarkus_years, jarkus_gdf):
 
     return all_diffs
 
-def plot_map(x, y, data, vminmax, cmap, title):
-    crs_28992 = ccrs.epsg('28992')
+def plot_map(epsg, x, y, data, vminmax=None, cmap='BrBG_r', title=''):
+    if epsg == 28992:
+        # EPSG:28992 Amersfoort / RD New
+        crs = ccrs.epsg('28992')
+    elif epsg == 4326:
+        # EPSG:4326 WGS 84
+        crs = ccrs.PlateCarree()
+    else:
+        raise ValueError("Use EPSG code 28992 or 4326.")
     
     # request = cimgt.OSM()
     request = cimgt.GoogleTiles(style="satellite")
@@ -132,8 +139,11 @@ def plot_map(x, y, data, vminmax, cmap, title):
     ax.gridlines(draw_labels=True, zorder=0, color='lightgrey')
     zoom = 10
     ax.add_image(request, zoom, alpha=0.7, zorder=0)
+
+    if vminmax is None:
+        vminmax = [np.nanmin(data), np.nanmax(data)]
     
-    plot = ax.scatter(x, y, c=data, marker='.', s=2, transform=crs_28992, cmap=cmap, vmin=vminmax[0], vmax=vminmax[1])
+    plot = ax.scatter(x, y, c=data, marker='.', s=2, transform=crs, cmap=cmap, vmin=vminmax[0], vmax=vminmax[1])
     
     plt.title(title)
     plt.colorbar(plot, shrink=.6, label='[m]', pad=.15)
