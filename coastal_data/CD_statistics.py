@@ -3,6 +3,8 @@ from scipy.sparse import lil_array, csc_array, linalg
 from scipy.spatial import cKDTree
 from shapely import get_coordinates
 
+import pdb
+
 # ===================================================================================
 # Metrics to compare two datasets
 # ===================================================================================
@@ -162,13 +164,13 @@ def compute_trend_with_error(x, y, P=None):
     array of differences between observation and model (verbesserungen v)
     '''    
 
-    if P is None:
-        P = np.diag(np.ones(len(y)))
-
     # remove nans
     idx_nan = np.nonzero(np.isnan(y))[0]
     x = np.delete(x, idx_nan)
     y = np.delete(y, idx_nan)
+    
+    if P is None:
+        P = np.diag(np.ones(len(y)))
     
     # A-Matrix
     # Linear function: y = m*x + t
