@@ -45,7 +45,6 @@ def get_jarkus_data(datapath_jarkus, year_start, year_end, poly_target, init):
     # Reduce to target area
     # poly_28992 = CD_geometry.transform_polygon(poly_target_red, 4326, 28992)
     jarkus_gdf = jarkus_gdf[jarkus_gdf.intersects(poly_target)]
-    jarkus_gdf = jarkus_gdf.reset_index(drop=True)
 
     # thin out the grid so that there are approximately len(init) values left, as evenly spaced as possible
     temp = init.band_data.values.reshape(-1)
@@ -55,6 +54,7 @@ def get_jarkus_data(datapath_jarkus, year_start, year_end, poly_target, init):
     jarkus_gdf = jarkus_gdf.iloc[::thin_out_factor]
 
     jarkus_gdf = jarkus_gdf.set_crs('4326')
+    jarkus_gdf = jarkus_gdf.reset_index(drop=True)
     
     return jarkus_gdf
 
