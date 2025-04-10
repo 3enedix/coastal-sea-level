@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from scipy.sparse import lil_array, csc_array, linalg
 from scipy.spatial import cKDTree
 from shapely import get_coordinates
@@ -9,7 +10,7 @@ import pdb
 # Metrics to compare two datasets
 # ===================================================================================
 
-def me(diff, print_result=True):
+def compute_mean_error(diff, print_result=True):
     '''
     Mean error
     diff - array like vector of differences
@@ -19,7 +20,7 @@ def me(diff, print_result=True):
         print(f'Mean error: {round(me,2)} m')
     return me
 
-def mae(diff, print_result=True):
+def compute_mean_absolute_error(diff, print_result=True):
     '''
     Mean absolute error
     diff - array like vector of differences
@@ -29,7 +30,7 @@ def mae(diff, print_result=True):
         print(f'Mean absolute error: {round(mae,2)} m')
     return mae
 
-def rmse(diff, print_result=True):
+def compute_rmse(diff, print_result=True):
     '''
     Root mean square error
     diff - array like vector of differences
@@ -39,7 +40,7 @@ def rmse(diff, print_result=True):
         print(f'Root mean square error: {round(rmse,2)} m')
     return rmse
 
-def mad_mean(diff, print_result=True):
+def compute_mad_mean(diff, print_result=True):
     '''
     Mean absolute deviation from the mean
     diff - array like vector of differences
@@ -49,7 +50,7 @@ def mad_mean(diff, print_result=True):
         print(f'Mean absolute deviation from mean: {round(mad_mean,2)} m')
     return mad_mean
 
-def mad_med(diff, print_result=True):
+def compute_mad_med(diff, print_result=True):
     '''
     Median absolute deviation from the median
     diff - array like vector of differences
@@ -58,6 +59,62 @@ def mad_med(diff, print_result=True):
     if print_result:
         print(f'Median absolute deviation from median: {round(mad_med,2)} m')
     return mad_med
+
+def print_stats(diff, fn=None, path=None):
+    me = compute_mean_error(diff)
+
+    diff_debias = diff - me
+    print("---De-bias with mean---")
+    me = compute_mean_error(diff_debias)
+    mae = compute_mean_absolute_error(diff_debias)
+    rmse = compute_rmse(diff_debias)
+    mad_mean = compute_mad_mean(diff_debias)
+    mad_med = compute_mad_med(diff_debias)
+
+    if path:       
+        with open(f'{path}{fn}.txt', 'w') as f:
+            f.write(f'Mean error: {round(me,2)} m')
+            f.write(f'\nMean absolute error: {round(mae,2)} m')
+            f.write(f'\nMean absolute error: {round(mae,2)} m')
+            f.write(f'\nRoot mean square error: {round(rmse,2)} m')
+            f.write(f'\nMean absolute deviation from mean: {round(mad_mean,2)} m')
+            f.write(f'\nMedian absolute deviation from median: {round(mad_med,2)} m')
+
+def all_stats_per_year(rts_data, jarkus_gdf, year_list, static=False):
+    '''
+    Computes all statistics per year.
+    
+    Input
+    ------------------------
+    rts_data: array like vector of differences
+    jarkus_gdf: array like vector of differences
+    year_list: list of years
+    static: boolean, if True, the static data is used
+    
+    Output
+    ------------------------
+    stats_df: dataframe with the results
+    all_diffs: dictionary with all differences
+    '''
+
+    print_result = False
+    all_diffs = {}
+    stats_df = pd.DataFrame(index=year_list)
+    
+    for year in year_list:
+        if static:            
+            diff = rts_data - jarkus_gdf[str(year)]
+        else:
+            diff = rts_data[str(year)] - jarkus_gdf[str(year)]
+        all_diffs[str(year)] = diff # for aggregate histogram
+        
+        stats_df.loc[str(year), 'me'] = compute_mean_error(diff, print_result)
+        stats_df.loc[str(year), 'mae'] = compute_mean_absolute_error(diff, print_result)
+        stats_df.loc[str(year), 'rmse'] = compute_rmse(diff, print_result)
+        stats_df.loc[str(year), 'mad_mean'] = compute_mad_mean(diff, print_result)
+        stats_df.loc[str(year), 'mad_med'] = compute_mad_med(diff, print_result) 
+     
+    return stats_df, all_diffs
 
 # ===================================================================================
 # Timeseries analysis
