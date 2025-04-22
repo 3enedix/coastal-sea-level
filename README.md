@@ -1,2 +1,2 @@
 # coastal-sea-level
-PhD project connecting radar altimetry and coastlines from remote sensing to estimate sea level in coastal areas.
+This module contains a variety of functions that I'm writing while researching the impact of sea level rise on the position of a shoreline.
