@@ -80,7 +80,7 @@ def print_stats(diff, fn=None, path=None):
             f.write(f'\nMean absolute deviation from mean: {round(mad_mean,2)} m')
             f.write(f'\nMedian absolute deviation from median: {round(mad_med,2)} m')
 
-def all_stats_per_year(rts_data, jarkus_gdf, year_list, static=False):
+def all_stats_per_year(rts_data, jarkus_gdf, year_list, reduce_mean=False, static=False):
     '''
     Computes all statistics per year.
     
@@ -107,7 +107,11 @@ def all_stats_per_year(rts_data, jarkus_gdf, year_list, static=False):
         else:
             diff = rts_data[str(year)] - jarkus_gdf[str(year)]
         all_diffs[str(year)] = diff # for aggregate histogram
-        
+
+        if reduce_mean:
+            me = compute_mean_error(diff, print_result)
+            diff = diff - me
+            
         stats_df.loc[str(year), 'me'] = compute_mean_error(diff, print_result)
         stats_df.loc[str(year), 'mae'] = compute_mean_absolute_error(diff, print_result)
         stats_df.loc[str(year), 'rmse'] = compute_rmse(diff, print_result)
