@@ -28,8 +28,8 @@ def movie(df, x_poly, y_poly, col_list, first_col, savepath, fn):
     ax.add_image(request, zoom, alpha=0.7, zorder=0)
     
     # Initial state
-    scat = ax.scatter(x_poly, y_poly, marker='.', s=200, c=df[first_col],
-                      transform=ccrs.PlateCarree(), cmap='BrBG_r', vmin=-5, vmax=5)
+    scat = ax.scatter(x_poly, y_poly, marker='.', s=10, c=df[first_col],
+                      transform=ccrs.PlateCarree(), cmap='BrBG_r', vmin=-8, vmax=8)
     title = ax.set_title(first_col)
     fig.colorbar(scat, shrink=1, pad=.12, label='[m]')
     
@@ -76,7 +76,7 @@ def plot_histogram(ax, all_diffs, title):
     ax.set_ylabel('#')
     ax.grid() 
 
-def plot_map(epsg, x, y, data, vminmax=None, cmap='BrBG_r', title=''):
+def plot_map(epsg, x, y, data, vminmax=None, cmap='BrBG_r', title='', label=''):
     if epsg == 28992:
         # EPSG:28992 Amersfoort / RD New
         crs = ccrs.epsg('28992')
@@ -88,7 +88,7 @@ def plot_map(epsg, x, y, data, vminmax=None, cmap='BrBG_r', title=''):
     
     # request = cimgt.OSM()
     request = cimgt.GoogleTiles(style="satellite")
-    fig, ax = plt.subplots(figsize=(15,8), subplot_kw=dict(projection=request.crs))
+    fig, ax = plt.subplots(figsize=(20,10), subplot_kw=dict(projection=request.crs))
     ax.set_extent([5.1, 5.6, 53.32, 53.5], crs=ccrs.PlateCarree())
     ax.gridlines(draw_labels=True, zorder=0, color='lightgrey')
     zoom = 10
@@ -97,10 +97,10 @@ def plot_map(epsg, x, y, data, vminmax=None, cmap='BrBG_r', title=''):
     if vminmax is None:
         vminmax = [np.nanmin(data), np.nanmax(data)]
     
-    plot = ax.scatter(x, y, c=data, marker='.', s=2, transform=crs, cmap=cmap, vmin=vminmax[0], vmax=vminmax[1])
+    plot = ax.scatter(x, y, c=data, marker='.', s=5, transform=crs, cmap=cmap, vmin=vminmax[0], vmax=vminmax[1])
     
     plt.title(title)
-    plt.colorbar(plot, shrink=.6, label='[m]', pad=.15)
+    plt.colorbar(plot, shrink=.6, label=label, pad=.15)
 
 
 
