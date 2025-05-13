@@ -148,7 +148,7 @@ def clean_rads(rads_data):
 # Get Altimetry Timeseries
 # ===================================================================================
 
-def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, period_covered, freq_average='ME'):
+def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, gridsize, period_covered, freq_average='ME'):
     '''
     Create a timeseries from along-track altimetry data
     that fits best to a nearby tide gauge
@@ -162,8 +162,7 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     alt_data - xarray Dataset (from netcdf)
     labels - dict, under which label in the dataset are which variables stored
         e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
-    epsg - dict with input and output epsg codes
-        e.g.: epsg = {'in':4326, 'out':28992}
+    epsg_in, epsg_out - float
         ! cell numbers change for different crs !
         ! out epsg can not be WGS84 (epgs 4326) !
     tg - pandas Series of corrected tide gauge data (corrected for IB and VLM) with DatetimeIndex
@@ -193,8 +192,8 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
         alt_gdf['sla'] = alt_data[labels['sla']]
         alt_gdf['ssh'] = np.nan
     
-    alt_gdf = alt_gdf.set_crs(epsg['in'])
-    alt_gdf = alt_gdf.to_crs(epsg['out'])
+    alt_gdf = alt_gdf.set_crs(epsg_in)
+    alt_gdf = alt_gdf.to_crs(epsg_out)
     
     # opt: filter out points in certain areas (provide mask)
 
@@ -278,18 +277,18 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     print(np.abs(cell_stats['trend_diff'].iloc[idx_long]).sort_values().iloc[:nr])
 
     # Maps of correlation, RMSE and trend difference
-    savepath = '/home/bene/Downloads/' # !#$^%! hard coded path
+    savepath = './' # !#$^%! hard coded path
     
     fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax1, epsg['out'], centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
+    plot_map(ax1, epsg_out, centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
     plt.savefig(savepath+'correlation.png', dpi=300, bbox_inches='tight')
     
     fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax2, epsg['out'], centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
+    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
     plt.savefig(savepath+'RMSE.png', dpi=300, bbox_inches='tight')
     
     fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax3, epsg['out'], centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
+    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
     plt.savefig(savepath+'trend_diff.png', dpi=300, bbox_inches='tight')
 
     # Get user input which cells to extract
@@ -325,7 +324,7 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg, tg, gridsize, perio
     
     return alt_ex_temp_av
 
-def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg, poly, freq_average='ME'):
+def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg_in, epsg_out, poly, freq_average='ME'):
     '''
     If no tide gauge available, simply average all points
     inside a user-defined polygon.
@@ -335,8 +334,7 @@ def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg, poly, freq_ave
     alt_data - xarray Dataset (from netcdf)
     labels - dict, under which label in the dataset are which variables stored
         e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
-    epsg - dict with input and output epsg codes
-        e.g.: epsg = {'in':4326, 'out':28992}
+    epsg_in, epsg_out - float
     poly - shapely polygon containing the area over which to average all points
         ! coordinates of the polygon must be the same crs as epsg['out'] !
     freq_average - string, period over which to average in pd.Grouper
@@ -354,8 +352,8 @@ def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg, poly, freq_ave
                        geometry = gpd.points_from_xy(alt_data[labels['lon']], alt_data[labels['lat']]))    
     alt_gdf = alt_gdf.set_index(pd.to_datetime(alt_data[labels['time']], utc=True))
     
-    alt_gdf = alt_gdf.set_crs(epsg['in'])
-    alt_gdf = alt_gdf.to_crs(epsg['out'])
+    alt_gdf = alt_gdf.set_crs(epsg_in)
+    alt_gdf = alt_gdf.to_crs(epsg_out)
 
     alt_gdf_red = alt_gdf[alt_gdf.intersects(poly)]
     alt_gdf_red = alt_gdf_red.drop('geometry', axis=1)
@@ -369,6 +367,37 @@ def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg, poly, freq_ave
 # ===================================================================================
 # Helper Functions
 # ===================================================================================
+
+def equalise_timeseries(ts1, ts2):
+    '''
+    From two timeseries ts1 and ts2 with some overlap
+    compute the bias from the overlap period as the mean of differences,
+    and adjust ts1 so that both are on the average level of ts2.
+
+    Input
+    -----
+    ts1, ts2: pandas Series with DateTime index
+
+    Output
+    -----
+    ts1 with bias to ts2 removed
+    '''
+    overlap_dates = ts1.index.intersection(ts2.index)
+    print(f'There are {len(overlap_dates)} overlapping values in the same time period.')
+    
+    idx_ts1 = ts1.index.get_indexer(overlap_dates)
+    ts1_overlap = ts1.iloc[idx_ts1]
+
+    idx_ts2 = ts2.index.get_indexer(overlap_dates)
+    ts2_overlap = ts2.iloc[idx_ts2]
+
+    bias = (ts1_overlap - ts2_overlap).mean()
+    print(f'Bias: {bias} m')
+    ts1_biased = ts1 - bias
+    # Remove the overlapping dates from ts1
+    ts1_biased = ts1_biased.drop(overlap_dates)
+    
+    return ts1_biased
 
 # def remove_season_and_trend(ts):
 #     '''
@@ -507,9 +536,9 @@ def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec
         fig = plt.figure(figsize=(12,12))
         ax = plt.axes(projection=ccrs.PlateCarree())
     '''
-    plt.ion()
-    manager = plt.get_current_fig_manager()
-    manager.window.showMaximized()   
+    # plt.ion()
+    # manager = plt.get_current_fig_manager()
+    # manager.window.showMaximized()   
     
     data_re = reformat_chess_data(cell_stats, param, x_vec, y_vec)
     projection = ccrs.epsg(epsg)    
@@ -529,17 +558,57 @@ def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec
 
     ax.set_title(title)
     ax.text(0, -0.1, 'Press any button to continue.', transform=ax.transAxes)
-
+    
+    # plt.show()
     plt.colorbar(plot, shrink=1, pad=0.1, label=label, ax=ax)
-    plt.draw()
-    plt.pause(0.01)
-    plt.waitforbuttonpress()
-    plt.ioff()
+    # plt.draw()
+    # plt.pause(0.01)
+    # plt.waitforbuttonpress()
+    # plt.ioff()
 
     
 # ===================================================================================
 # IB correction
 # ===================================================================================
+def compute_ib_corr(path_output_general):
+    
+    # Download mean sea level pressure from ERA5
+    fn = 'era5_mean_sea_level_pressure.nc'
+    if (not os.path.isfile(path_output_general+fn)):
+        CD_altimetry.download_era5_mean_sea_level_pressure(path_output_general, fn)
+    
+    # Open ERA5 mean sea level pressure
+    mslp = xr.open_dataset(path_output_general + fn, engine='netcdf4')
+    
+    # Apply ocean mask and compute weighted average
+    msl_ocean, mask = CD_altimetry.apply_ocean_mask_to_era5msl(path_input_general, mslp)
+    msl_ocean_w_mean = CD_altimetry.weighted_average(mslp, mask, msl_ocean)
+    
+    # Compute IB correction
+    g = 9.81 # mean gravitational acceleration [m/s^2]
+    d = 1027 # standard value for ocean surface water density [kg/m^3]    
+    corr = (msl_ocean - msl_ocean_w_mean) / (d * g)
+    corr.set_fill_value(0)
+    
+    # Save
+    data_vars = {'IB_correction':(['time', 'lat', 'lon'], corr,
+            {'long_name':'Inverted barometer height correction',
+            'units': 'm',
+            'pressure data':'ERA5 monthly mean sea level pressure',
+            })}
+
+    coords = {'time': (['time'], mslp.valid_time.values),
+            'lat': (['lat'], mslp.latitude.values),
+            'lon': (['lon'], mslp.longitude.values)}
+
+    attrs = {'description':'Inverted barometer correction for sea level heights from ERA5, globally.',
+            'author':'Bene Aschenneller',
+            'email':'s.aschenneller@utwente.nl'}
+
+    ds_corr = xr.Dataset(data_vars, coords, attrs)
+    ds_corr.to_netcdf(path_output_general + 'ib_correction_era5.nc', format='NETCDF4', encoding={'IB_correction':{'dtype':'int32', 'scale_factor': 1e-5}} )
+    
+    return corr
 
 def download_era5_mean_sea_level_pressure(path_output, fn):
     import cdsapi
@@ -574,3 +643,35 @@ def download_era5_mean_sea_level_pressure(path_output, fn):
     target = path_output + fn
     client = cdsapi.Client()
     client.retrieve(dataset, request, target)
+    
+def apply_ocean_mask_to_era5msl(path_input_general, mslp):
+    mask = xr.open_dataset(path_input_general + 'land_mask_0p25_oceanFull_invGrd.nc')
+    mask = mask.squeeze('time').reset_coords('time', drop=True)
+    mask = mask.z > 0.5
+    mask = mask[:,:1440]
+    mask = np.flipud(mask)
+    mask_temp1 = mask[:,:720]
+    mask_temp2 = mask[:,720:]
+    mask = np.hstack((mask_temp2, mask_temp1))
+    mask = np.invert(mask)
+    mask = np.broadcast_to(mask, mslp.msl.shape)
+    msl_ocean = np.ma.masked_array(mslp.msl, mask=mask)
+
+    return msl_ocean, mask
+
+def latitude_weighting(ds, mask):
+    weights = np.cos(ds.latitude * np.pi / 180)
+    weights = np.resize(weights, (len(ds.longitude),len(ds.latitude)))
+    weights = np.transpose(weights)
+    weights = np.ma.masked_array(weights, mask=mask[0])
+
+    return weights
+
+def weighted_average(mslp, mask, msl_ocean):
+    weights = latitude_weighting(mslp, mask)
+    msl_ocean_w = msl_ocean * weights
+    msl_ocean_w_mean = msl_ocean_w.sum(axis=(1,2)) / weights.sum()
+    msl_ocean_w_mean = msl_ocean_w_mean.reshape((len(msl_ocean_w_mean),1,1))
+    msl_ocean_w_mean = np.broadcast_to(msl_ocean_w_mean, (msl_ocean.shape))  
+    
+    return msl_ocean_w_mean
