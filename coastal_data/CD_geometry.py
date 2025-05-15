@@ -81,7 +81,7 @@ def shoreline_outlier_rejection(shorelines, ref_line, epsg, t_factor=2):
     shorelines - array of nx2 arrays with the shoreline coordinates
     ref_line - shapely LineString approximating the shoreline over the entire coastal stretch
     epsg - float
-    t - threshold parameter. The threshold is computed as t * std, (std of distances to reference shoreline),
+    t_factor - threshold parameter. The threshold is computed as t_factor * mean, (mean of distances to reference shoreline),
     The shoreline points inside that distance (< t * std) are kept.
 
     Output
@@ -95,8 +95,7 @@ def shoreline_outlier_rejection(shorelines, ref_line, epsg, t_factor=2):
         dists[i] = dist_temp
         all_dists = all_dists + dist_temp
 
-    std = CD_statistics.std(all_dists)
-    thresh = t_factor*std
+    thresh = t_factor*np.nanmean(all_dists)
     
     shorelines_red = np.empty_like(shorelines)
     
