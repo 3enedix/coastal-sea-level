@@ -226,7 +226,7 @@ def get_DEM_contour(x, y, elev, h=0, tarea=None):
     plt.close()
 
     # Turn matplotlib collection to shapely LineStrings
-    path = zcontour.collections[0].get_paths()[0]
+    path = zcontour.get_paths()[0]
 
     z_ls = LineString(path.vertices)
 
