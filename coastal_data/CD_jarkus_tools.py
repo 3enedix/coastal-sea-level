@@ -3,6 +3,10 @@ import pandas as pd
 import xarray as xr
 import geopandas as gpd
 from scipy.interpolate import interpn, griddata
+from shapely import LineString
+from shapely.ops import split
+
+from coastal_data import CD_geometry
 
 def get_jarkus_data(datapath_jarkus, year_start, year_end, poly_target, init):
     '''
@@ -71,3 +75,40 @@ def interpolate_irregular_grid_onto_JARKUS(x_state, elev_col, lon_jarkus, lat_ja
     values = x_state[elev_col]
     interp = griddata(list(zip(mx,my)), values, list(zip(lon_jarkus,lat_jarkus)), 'linear')
     return interp
+
+def get_Ters_section_polygons(poly_target, jarkus, buffer_vol=-250):
+    buffer_vol = CD_geometry.dist_meter_to_dist_deg(buffer_vol)
+    poly_target_red = poly_target.buffer(buffer_vol)
+    print(f'Reduced target polygon by {round(1-(poly_target_red.area / poly_target.area), 3)*100} %')
+    
+    # West Terschelling erosive section
+    idx_west = [25, 57]
+    # Middle accretive section
+    idx_middle = [58, 111]
+    # East Terschelling erosive section
+    idx_east = [112, 144]
+    
+    poly_west, _ = cut_poly_with_transects(jarkus, poly_target_red, idx_west)
+    poly_center, _ = cut_poly_with_transects(jarkus, poly_target_red, idx_middle)
+    poly_east, _ = cut_poly_with_transects(jarkus, poly_target_red, idx_east)
+
+    # remaining area
+#     idx_west_out = [14, 25]
+#     _, poly_west_out = cut_poly_with_transects(jarkus, poly_target_red, idx_west_out)
+
+#     idx_east_out = [144, -1]
+#     poly_east_out, _ = cut_poly_with_transects(jarkus, poly_target_red, idx_east_out)
+    
+    return poly_target_red, poly_west, poly_center, poly_east #, poly_west_out, poly_east_out
+
+def cut_poly_with_transects(jarkus, poly_target_red, idx):
+    jarkus_transect = jarkus.isel(alongshore=idx[0])
+    transect_1 = LineString(zip(jarkus_transect.lon, jarkus_transect.lat))
+    
+    jarkus_transect = jarkus.isel(alongshore=idx[1])
+    transect_2 = LineString(zip(jarkus_transect.lon, jarkus_transect.lat))
+
+    split1 = split(poly_target_red, transect_2).geoms[0]
+    cut_area = split(split1, transect_1).geoms[1]
+
+    return cut_area, split1
