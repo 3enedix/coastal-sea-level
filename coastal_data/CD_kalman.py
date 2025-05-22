@@ -150,8 +150,8 @@ def initial_state(epsg, buffer_size, resolution, c_shorelines, alt, path_input, 
     elif epsg == 28992:
         alpha = 3e-4    
 
-    # # Polgon around the shorelines
-    # poly_shorelines = CD_geometry.get_area_covered_by_shorelines(c_shorelines, alpha=alpha, buffer_size=0)
+    # Polgon around the shorelines
+    poly_shorelines = CD_geometry.get_area_covered_by_shorelines(c_shorelines, alpha=alpha, buffer_size=0)
     # # Polygon of target area (shoreline polygon with buffer)
     # poly_buffered = poly_shorelines.buffer(buffer_size)
 
@@ -166,7 +166,7 @@ def initial_state(epsg, buffer_size, resolution, c_shorelines, alt, path_input, 
     x_poly, y_poly, x_full, y_full = CD_geometry.create_target_grid(poly_buffered, resolution=resolution)
     
     pickle.dump(poly_buffered, open(path_output + f'poly_buffered_{epsg}.pkl', 'wb'))
-    # pickle.dump(poly_shorelines, open(path_output + f'poly_sl_{epsg}.pkl', 'wb'))
+    pickle.dump(poly_shorelines, open(path_output + f'poly_sl_{epsg}.pkl', 'wb'))
     pickle.dump(zip(x_poly, y_poly), open(path_output+f'xy_poly_{epsg}.pkl', 'wb'))
 
     # 2. Get global DEMS
@@ -244,7 +244,7 @@ def initial_state(epsg, buffer_size, resolution, c_shorelines, alt, path_input, 
             f.write(f'Initial state as combination of GEBCO and DeltaDTM. Created on {time.strftime("%Y-%m-%d_%H:%M:%S")}')
     end_time = time.process_time()
     ex_time = end_time - start_time
-    print("Done. Needed ", ex_time/60, "minutes.")
+    print("Done. Needed ", round(ex_time/60,2), "minutes.")
 
 # ===================================================================================
 # Filter (forward & backward)
