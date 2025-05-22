@@ -279,16 +279,16 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, gr
     # Maps of correlation, RMSE and trend difference
     savepath = './' # !#$^%! hard coded path
     
-    fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
+    fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
     plot_map(ax1, epsg_out, centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
     plt.savefig(savepath+'correlation.png', dpi=300, bbox_inches='tight')
     
-    fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0.1, vmax=0.3, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
+    fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
+    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
     plt.savefig(savepath+'RMSE.png', dpi=300, bbox_inches='tight')
     
-    fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(10,10))
-    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-5.0, vmax=5.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
+    fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
+    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-15.0, vmax=15.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
     plt.savefig(savepath+'trend_diff.png', dpi=300, bbox_inches='tight')
 
     # Get user input which cells to extract
@@ -544,7 +544,7 @@ def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec
     projection = ccrs.epsg(epsg)    
     ax.gridlines(draw_labels=True, crs=ccrs.PlateCarree())
     ax.add_feature(LAND, edgecolor = 'darkgray', facecolor = "lightgray", zorder=2)
-    plot = ax.pcolormesh(x_vec, y_vec, data_re, transform=projection, cmap=cmap, vmin = vmin, vmax = vmax)
+    plot = ax.pcolormesh(x_vec, y_vec, data_re, transform=projection, cmap=cmap, vmin=vmin, vmax=vmax)
     ax.scatter(alt_gdf.geometry.x, alt_gdf.geometry.y, marker='+', s=1, c='darkgrey', transform=projection)
     
     # plot cell numbers
@@ -557,7 +557,7 @@ def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec
                     transform=projection)
 
     ax.set_title(title)
-    ax.text(0, -0.1, 'Press any button to continue.', transform=ax.transAxes)
+    # ax.text(0, -0.1, 'Press any button to continue.', transform=ax.transAxes)
     
     # plt.show()
     plt.colorbar(plot, shrink=1, pad=0.1, label=label, ax=ax)
@@ -570,25 +570,23 @@ def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec
 # ===================================================================================
 # IB correction
 # ===================================================================================
-def compute_ib_corr(path_output_general):
-    
+def compute_ib_corr(path_input_general):    
     # Download mean sea level pressure from ERA5
     fn = 'era5_mean_sea_level_pressure.nc'
-    if (not os.path.isfile(path_output_general+fn)):
-        CD_altimetry.download_era5_mean_sea_level_pressure(path_output_general, fn)
+    if (not os.path.isfile(path_input_general+fn)):
+        download_era5_mean_sea_level_pressure(path_input_general, fn)
     
     # Open ERA5 mean sea level pressure
-    mslp = xr.open_dataset(path_output_general + fn, engine='netcdf4')
+    mslp = xr.open_dataset(path_input_general + fn, engine='netcdf4')
     
     # Apply ocean mask and compute weighted average
-    msl_ocean, mask = CD_altimetry.apply_ocean_mask_to_era5msl(path_input_general, mslp)
-    msl_ocean_w_mean = CD_altimetry.weighted_average(mslp, mask, msl_ocean)
+    msl_ocean, mask = apply_ocean_mask_to_era5msl(path_input_general, mslp)
+    msl_ocean_w_mean = weighted_average(mslp, mask, msl_ocean)
     
     # Compute IB correction
     g = 9.81 # mean gravitational acceleration [m/s^2]
     d = 1027 # standard value for ocean surface water density [kg/m^3]    
     corr = (msl_ocean - msl_ocean_w_mean) / (d * g)
-    corr.set_fill_value(0)
     
     # Save
     data_vars = {'IB_correction':(['time', 'lat', 'lon'], corr,
@@ -606,7 +604,7 @@ def compute_ib_corr(path_output_general):
             'email':'s.aschenneller@utwente.nl'}
 
     ds_corr = xr.Dataset(data_vars, coords, attrs)
-    ds_corr.to_netcdf(path_output_general + 'ib_correction_era5.nc', format='NETCDF4', encoding={'IB_correction':{'dtype':'int32', 'scale_factor': 1e-5}} )
+    ds_corr.to_netcdf(path_input_general + 'ib_correction_era5.nc', format='NETCDF4', encoding={'IB_correction':{'dtype':'float32', '_FillValue': np.nan}})
     
     return corr
 
