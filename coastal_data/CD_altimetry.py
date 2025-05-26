@@ -124,7 +124,7 @@ def clean_openadb_ales(ales):
 # RADS Data Preparation
 # ===================================================================================
 
-def clean_rads(rads_data):
+def clean_rads(rads_data, sla_var):
     '''
     Apply (reduced) cleaning for dist to coast and SLA
     as in clean_openadb_ales.
@@ -132,13 +132,14 @@ def clean_rads(rads_data):
     Input
     -----
     rads_data - xarray Dataset
+    sla_var - string, name of the variable containing SLAs
 
     Output
     -----
     rads_data - xarray Dataset
     '''
     idx_dist, = np.where((rads_data.dist_coast >= 3) | (np.isnan(rads_data.dist_coast)))
-    idx_sla, = np.where(abs(rads_data.sla) <= 2.5)
+    idx_sla, = np.where(abs(rads_data[sla_var]) <= 2.5)
     
     rads_data = rads_data.isel({'time':idx_dist, 'time':idx_sla})
 
@@ -284,11 +285,11 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, gr
     plt.savefig(savepath+'correlation.png', dpi=300, bbox_inches='tight')
     
     fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
-    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
+    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0, vmax=5, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
     plt.savefig(savepath+'RMSE.png', dpi=300, bbox_inches='tight')
     
     fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
-    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-15.0, vmax=15.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
+    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-100.0, vmax=100.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
     plt.savefig(savepath+'trend_diff.png', dpi=300, bbox_inches='tight')
 
     # Get user input which cells to extract
