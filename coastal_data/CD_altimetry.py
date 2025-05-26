@@ -325,16 +325,17 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, gr
     
     return alt_ex_temp_av
 
-def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg_in, epsg_out, poly, freq_average='ME'):
+def get_altimetry_timeseries_from_polygon(sla, lon, lat, time, epsg_in, epsg_out, poly, freq_average='ME'):
     '''
     If no tide gauge available, simply average all points
     inside a user-defined polygon.
 
     Input
     -----
-    alt_data - xarray Dataset (from netcdf)
-    labels - dict, under which label in the dataset are which variables stored
-        e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
+    sla - sea level anomaly, array-like (nx1)
+    lon - longitude, array-like (nx1)
+    lat - latitude, array-like (nx1)
+    time - time, array-like (nx1)
     epsg_in, epsg_out - float
     poly - shapely polygon containing the area over which to average all points
         ! coordinates of the polygon must be the same crs as epsg['out'] !
@@ -346,12 +347,10 @@ def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg_in, epsg_out, p
     alt_temp_av - pandas DataFrame with columns time, ssh, mssh and sla
     '''
     alt_gdf = gpd.GeoDataFrame({
-                           'ssh':alt_data[labels['ssh']],
-                           'mssh':alt_data[labels['mssh']],
-                           'sla':alt_data[labels['ssh']] - alt_data[labels['mssh']],
+                            'sla':sla
                             },
-                       geometry = gpd.points_from_xy(alt_data[labels['lon']], alt_data[labels['lat']]))    
-    alt_gdf = alt_gdf.set_index(pd.to_datetime(alt_data[labels['time']], utc=True))
+                       geometry = gpd.points_from_xy(lon, lat))    
+    alt_gdf = alt_gdf.set_index(pd.to_datetime(time, utc=True))
     
     alt_gdf = alt_gdf.set_crs(epsg_in)
     alt_gdf = alt_gdf.to_crs(epsg_out)
@@ -360,10 +359,10 @@ def get_altimetry_timeseries_from_polygon(alt_data, labels, epsg_in, epsg_out, p
     alt_gdf_red = alt_gdf_red.drop('geometry', axis=1)
 
     alt_gdf_red['sla'] = CD_statistics.three_sigma_outlier_rejection(alt_gdf_red['sla'])
-    alt_gdf_red['ssh'] = CD_statistics.three_sigma_outlier_rejection(alt_gdf_red['ssh'])
     
     alt_temp_av = alt_gdf_red.groupby(pd.Grouper(freq=freq_average)).mean()
     return alt_temp_av
+    
     
 # ===================================================================================
 # Helper Functions
@@ -393,7 +392,7 @@ def equalise_timeseries(ts1, ts2):
     ts2_overlap = ts2.iloc[idx_ts2]
 
     bias = (ts1_overlap - ts2_overlap).mean()
-    print(f'Bias: {bias} m')
+    print(f'Bias: {round(bias,3)} m')
     ts1_biased = ts1 - bias
     # Remove the overlapping dates from ts1
     ts1_biased = ts1_biased.drop(overlap_dates)
