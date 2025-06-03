@@ -285,11 +285,11 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, gr
     plt.savefig(savepath+'correlation.png', dpi=300, bbox_inches='tight')
     
     fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
-    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0, vmax=5, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
+    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0, vmax=.5, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
     plt.savefig(savepath+'RMSE.png', dpi=300, bbox_inches='tight')
     
     fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
-    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-100.0, vmax=100.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
+    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-10.0, vmax=10.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
     plt.savefig(savepath+'trend_diff.png', dpi=300, bbox_inches='tight')
 
     # Get user input which cells to extract
@@ -362,6 +362,40 @@ def get_altimetry_timeseries_from_polygon(sla, lon, lat, time, epsg_in, epsg_out
     
     alt_temp_av = alt_gdf_red.groupby(pd.Grouper(freq=freq_average)).mean()
     return alt_temp_av
+
+def extract_single_cell(sla, lon, lat, time, cells_to_extract, epsg_in, epsg_out):
+    alt_gdf = gpd.GeoDataFrame({'sla':sla},
+                           geometry = gpd.points_from_xy(lon, lat))    
+    alt_gdf = alt_gdf.set_index(pd.to_datetime(time, utc=True))
+    alt_gdf = alt_gdf.set_crs(epsg_in)
+    alt_gdf = alt_gdf.to_crs(epsg_out)
+
+    # Chessboard binning
+    gridsize = {'x':50, 'y':50} # [km]
+    alt_gdf, centers, x_vec, y_vec = CD_altimetry.chessboard_binning(alt_gdf, gridsize)
+    alt_gdf = CD_altimetry.get_distance_to_cell_centers(alt_gdf, centers)
+
+    monthly_index = alt_gdf['sla'].groupby(pd.Grouper(freq='ME')).mean().index
+    alt_ex = pd.DataFrame(index=monthly_index) # df to store all monthly time series, one cell per column
+    for cell in cells_to_extract:
+        idx_ex = np.where(alt_gdf['cell'] == cell)
+        alt_gdf_ex = alt_gdf.iloc[idx_ex]
+
+        df_red_ex = alt_gdf_ex.copy()
+        df_red_ex['sla_red'] = CD_statistics.three_sigma_outlier_rejection(df_red_ex['sla'])
+
+        alt_ex_temp = pd.DataFrame() # df to store one monthly time series for one cell
+        for time, df_month in df_red_ex.groupby(pd.Grouper(freq='ME')):
+            weights = 1/df_month['dist2center']
+            sla_temp_av = (df_month['sla_red'] * weights).sum()/weights.sum()
+            alt_ex_month = pd.DataFrame({'time': time,
+                                               f'cell{cell}':sla_temp_av},
+                                               index=[time]).set_index('time')
+            alt_ex_temp = pd.concat([alt_ex_temp, alt_ex_month])
+
+        alt_ex = alt_ex.combine_first(alt_ex_temp)
+
+    return alt_ex
     
     
 # ===================================================================================
