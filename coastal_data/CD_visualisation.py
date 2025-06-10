@@ -9,6 +9,18 @@ import cartopy.io.img_tiles as cimgt
 
 import tabulate
 
+def plot_basemap(extent, zoom):
+    projection = ccrs.PlateCarree()
+
+    request = cimgt.GoogleTiles(style="satellite")
+    fig, ax = plt.subplots(figsize=(15,8), subplot_kw=dict(projection=request.crs))
+    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    ax.gridlines(draw_labels=True, zorder=0, color='lightgrey')
+    zoom = zoom
+    ax.add_image(request, zoom, alpha=0.7, zorder=0)
+    
+    return fig, ax
+
 def movie(df, x_poly, y_poly, col_list, first_col, savepath, fn):
     '''
     Create and save animation of Kalman filter or RTS smoother results.
