@@ -134,7 +134,7 @@ def backward_run(x_state, sigma_xx_up, sigma_xx_pred, year_end, T, eps_factor):
 # Initial state
 # ===================================================================================
 
-def initial_state(epsg, buffer_size, resolution, c_shorelines, alt, path_input, path_output, fn_init):
+def initial_state(epsg, buffer_size, smooth_factor, resolution, c_shorelines, alt, path_input, path_output, fn_init, fn_gebco, fn_ddtm):
     '''
     No return, saves result as TIF in path_output.
     '''
@@ -156,7 +156,7 @@ def initial_state(epsg, buffer_size, resolution, c_shorelines, alt, path_input, 
     # poly_buffered = poly_shorelines.buffer(buffer_size)
 
     # Buffer around median shoreline 
-    med_sl = CD_geometry.median_shoreline_from_transect_intersections(c_shorelines, spacing=100, transect_length=5000, smooth_factor=100)
+    med_sl = CD_geometry.median_shoreline_from_transect_intersections(c_shorelines, spacing=100, transect_length=5000, smooth_factor=smooth_factor)
     poly_buffered = med_sl.buffer(buffer_size)
 
     # Buffer around zero-contour
@@ -165,15 +165,16 @@ def initial_state(epsg, buffer_size, resolution, c_shorelines, alt, path_input, 
     # Grid inside the target polygon
     x_poly, y_poly, x_full, y_full = CD_geometry.create_target_grid(poly_buffered, resolution=resolution)
     
+    pickle.dump(med_sl, open(path_output + f'med_sl{epsg}.pkl', 'wb'))
     pickle.dump(poly_buffered, open(path_output + f'poly_buffered_{epsg}.pkl', 'wb'))
     pickle.dump(poly_shorelines, open(path_output + f'poly_sl_{epsg}.pkl', 'wb'))
     pickle.dump(zip(x_poly, y_poly), open(path_output+f'xy_poly_{epsg}.pkl', 'wb'))
 
     # 2. Get global DEMS
     fn = 'gebco_2023_n53.5439_s53.2693_w5.0194_e5.6607.nc'
-    gebco = xr.open_dataset(path_input+fn)
+    gebco = xr.open_dataset(path_input+fn_gebco)
     fn = 'DeltaDTM_v1_0_N53E005.tif'
-    ddtm = xr.open_dataset(path_input+fn).squeeze()
+    ddtm = xr.open_dataset(path_input+fn_ddtm).squeeze()
 
     if epsg != 4326:
         poly_4326 = CD_geometry.transform_polygon(poly_buffered, epsg, 4326)
@@ -227,7 +228,7 @@ def initial_state(epsg, buffer_size, resolution, c_shorelines, alt, path_input, 
     dem_in_slzone = comb_interp[comb_interp.intersects(med_sl_buffer)]
 
     # Compute bias
-    msl = alt.values.mean()
+    msl = np.nanmean(alt.values)
     diff = dem_in_slzone.elevation - msl
 
     # Remove bias

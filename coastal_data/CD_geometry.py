@@ -44,7 +44,6 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
     idx_long, = np.nonzero(dist == np.max(dist))[0]
     long_sl = LineString(shorelines[idx_long])
     smooth_sl = smooth_LineString(long_sl, n=smooth_factor)
-    
     # Create transects
     # if np.unique(get_coordinates(smooth_sl)).size < 4:
     transects_gdf = create_transects(smooth_sl, spacing=spacing, transect_length=transect_length)
