@@ -194,7 +194,7 @@ def create_target_grid(poly, resolution=100):
     y_full = [get_coordinates(_)[0][1] for _ in points.geoms]
 
     valid_points = points.intersection(poly)
-    
+
     x = [get_coordinates(_)[0][0] for _ in valid_points.geoms]
     y = [get_coordinates(_)[0][1] for _ in valid_points.geoms]
 

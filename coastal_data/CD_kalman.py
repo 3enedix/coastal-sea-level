@@ -55,7 +55,7 @@ def forward_run(year_start, year_end, init, std_init, rs_shoreline, seg_length, 
         enddate = str(year+1) + '-01-01' # '1994-01-01'
 
         # Observations
-        int_pc = CD_combine_data.waterline_method_period(rs_shoreline, seg_length, alt, tidal_corr['corr_eot[cm]'], startdate, enddate)
+        int_pc = CD_combine_data.waterline_method_period(rs_shoreline, seg_length, alt, tidal_corr, startdate, enddate)
         if int_pc is not None:
             int_pc = int_pc.set_crs(epsg)
             n_obs = len(int_pc)
@@ -134,42 +134,19 @@ def backward_run(x_state, sigma_xx_up, sigma_xx_pred, year_end, T, eps_factor):
 # Initial state
 # ===================================================================================
 
-def initial_state(epsg, buffer_size, smooth_factor, resolution, c_shorelines, alt, path_input, path_output, fn_init, fn_gebco, fn_ddtm):
+def initial_state(poly_target, med_sl, epsg, resolution, c_shorelines, alt, path_input, path_output, fn_init, fn_gebco, fn_ddtm):
     '''
     No return, saves result as TIF in path_output.
     '''
     start_time = time.process_time()
+        
     # 1. Create target grid
-    if epsg == 4326:
-        buffer_size = CD_geometry.dist_meter_to_dist_deg(buffer_size) # [deg]
-        resolution = CD_geometry.dist_meter_to_dist_deg(resolution) # [deg]
-    
-    # alpha (how much slack around the concave hull)
-    if epsg == 4326:
-        alpha = 100
-    elif epsg == 28992:
-        alpha = 3e-4    
-
-    # Polgon around the shorelines
-    poly_shorelines = CD_geometry.get_area_covered_by_shorelines(c_shorelines, alpha=alpha, buffer_size=0)
-    # # Polygon of target area (shoreline polygon with buffer)
-    # poly_buffered = poly_shorelines.buffer(buffer_size)
-
-    # Buffer around median shoreline 
-    med_sl = CD_geometry.median_shoreline_from_transect_intersections(c_shorelines, spacing=100, transect_length=5000, smooth_factor=smooth_factor)
-    poly_buffered = med_sl.buffer(buffer_size)
-
-    # Buffer around zero-contour
-    # poly_buffered = zcontour.buffer(buffer_size)
     
     # Grid inside the target polygon
-    x_poly, y_poly, x_full, y_full = CD_geometry.create_target_grid(poly_buffered, resolution=resolution)
+    x_poly, y_poly, x_full, y_full = CD_geometry.create_target_grid(poly_target, resolution=resolution)
     
-    pickle.dump(med_sl, open(path_output + f'med_sl{epsg}.pkl', 'wb'))
-    pickle.dump(poly_buffered, open(path_output + f'poly_buffered_{epsg}.pkl', 'wb'))
-    pickle.dump(poly_shorelines, open(path_output + f'poly_sl_{epsg}.pkl', 'wb'))
     pickle.dump(zip(x_poly, y_poly), open(path_output+f'xy_poly_{epsg}.pkl', 'wb'))
-
+    
     # 2. Get global DEMS
     fn = 'gebco_2023_n53.5439_s53.2693_w5.0194_e5.6607.nc'
     gebco = xr.open_dataset(path_input+fn_gebco)
@@ -177,16 +154,16 @@ def initial_state(epsg, buffer_size, smooth_factor, resolution, c_shorelines, al
     ddtm = xr.open_dataset(path_input+fn_ddtm).squeeze()
 
     if epsg != 4326:
-        poly_4326 = CD_geometry.transform_polygon(poly_buffered, epsg, 4326)
+        poly_4326 = CD_geometry.transform_polygon(poly_target, epsg, 4326)
     else:
-        poly_4326 = poly_buffered
+        poly_4326 = poly_target
 
     # If kernel dies, there are too many points for 'gpd.points_from_xy(dem_df.x, dem_df.y)'
     # Shutting all other kernels can help
     ddtm_gdf = CD_geometry.cut_DEM_to_target_area(ddtm, 'band_data', poly_4326, 'ddtm')
     gebco_gdf = CD_geometry.cut_DEM_to_target_area(gebco, 'elevation', poly_4326, 'gebco')
 
-    del ddtm, gebco
+    # del ddtm, gebco
     
     if epsg != 4326:
         gebco_gdf = gebco_gdf.to_crs(epsg)
@@ -196,15 +173,19 @@ def initial_state(epsg, buffer_size, smooth_factor, resolution, c_shorelines, al
     gebco_interp = CD_geometry.interpolate_dem(gebco_gdf, x_poly, y_poly)
     ddtm_interp = CD_geometry.interpolate_dem(ddtm_gdf, x_poly, y_poly)
 
-    del ddtm_gdf, gebco_gdf
+    # del ddtm_gdf, gebco_gdf
 
     # 4. Remove bias between GEBCO and DeltaDTM
     # Find where GEBCO and DeltaDTM intersect
     inter = gpd.sjoin(gebco_interp, ddtm_interp, how='inner', predicate='intersects', lsuffix='gebco', rsuffix='ddtm')
 
     diff = inter.elevation_gebco - inter.elevation_ddtm
-    bias = diff.mean()
-    print(f'Bias GEBCO - DeltaDTM: {round(bias,2)} m')
+    if not inter.empty:
+        bias = np.nanmean(diff)
+        print(f'Bias GEBCO - DeltaDTM: {round(bias,2)} m')
+    else:
+        bias = 0
+        print(f'No overlapping area between GEBCO and DeltaDTM.')
     
     # Remove the bias from GEBCO (and overwrite dataframe variable)
     gebco_interp.elevation = gebco_interp.elevation - bias
@@ -215,7 +196,7 @@ def initial_state(epsg, buffer_size, smooth_factor, resolution, c_shorelines, al
     
     comb_interp = pd.concat([ddtm_interp, gebco_noverlap])
 
-    del gebco_interp, ddtm_interp
+    # del gebco_interp, ddtm_interp
 
     # 6. [Smooth] removed, see notebook 52_initial_state for the code if spatial smoothing desired
 
