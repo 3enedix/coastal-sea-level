@@ -99,7 +99,7 @@ def all_stats_per_year(rts_data, jarkus_gdf, year_list, reduce_mean=False, stati
 
     print_result = False
     all_diffs = {}
-    stats_df = pd.DataFrame(index=year_list)
+    stats_df = pd.DataFrame()
     
     for year in year_list:
         if static:            
