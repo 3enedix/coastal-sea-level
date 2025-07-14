@@ -182,7 +182,7 @@ def initial_state(poly_target, med_sl, epsg, resolution, c_shorelines, alt, path
     diff = inter.elevation_gebco - inter.elevation_ddtm
     if not inter.empty:
         bias = np.nanmean(diff)
-        print(f'Bias GEBCO - DeltaDTM: {round(bias,2)} m')
+        print(f'Bias GEBCO - DeltaDTM: {round(bias,2)} m (based on {len(diff)} overlapping points (interpolated to target grid))')
     else:
         bias = 0
         print(f'No overlapping area between GEBCO and DeltaDTM.')
