@@ -86,7 +86,7 @@ def waterline_method_single(sl_date, shoreline, seg_len, ssh, tidal_corr):
     eot_corr = tidal_corr.loc[tidal_corr.index[idx_tcorr]]
     
     # De-tidal-correct sea level
-    ssh_height_decorr = ssh_height_corr.values + eot_corr.values/100
+    ssh_height_decorr = ssh_height_corr.values + eot_corr.values
     
     # Put shoreline and corresponding SSH in geodataframe
     shoreline_coords = get_coordinates(LineString(shoreline))
@@ -104,8 +104,6 @@ def waterline_method_period(rs_shoreline, seg_len, ssh, tidal_corr, startdate, e
     Combine shoreline coordinates with sea surface heights
     as a basis for an intertidal DEM ("waterline method")
     for a certain period of time between startdate and enddate.
-    ! This function expects to find a file 'tidal_correction_10minutes.csv'
-    ! under '/media/bene/Seagate/PhD-data/3_ocean_tide_models/'
     -----------------
     Input
     -----------------
@@ -146,7 +144,7 @@ def waterline_method_period(rs_shoreline, seg_len, ssh, tidal_corr, startdate, e
         eot_corr = tidal_corr.loc[tidal_corr.index[idx_tcorr]]
         
         # De-tidal-correct sea level
-        ssh_height_decorr = ssh_height_corr.values + eot_corr.values/100
+        ssh_height_decorr = ssh_height_corr.values + eot_corr.values
         
         # Put shoreline and corresponding SSH in geodataframe
         shoreline_coords = get_coordinates(LineString(shorelines[i]))
@@ -157,9 +155,10 @@ def waterline_method_period(rs_shoreline, seg_len, ssh, tidal_corr, startdate, e
             'ssh':ssh_expanded,
             'coords':gpd.points_from_xy(shoreline_coords[:,0], shoreline_coords[:,1])
         }, geometry='coords')
-        # if combined_gdf.empty | gdf_temp.empty:
-        #     pdb.set_trace()
-        combined_gdf = pd.concat([combined_gdf, gdf_temp])
+        if combined_gdf.empty:
+            combined_gdf = gdf_temp.copy()
+        else:
+            combined_gdf = pd.concat([combined_gdf, gdf_temp])
 
     combined_gdf = combined_gdf.set_index('dates')
     return combined_gdf
