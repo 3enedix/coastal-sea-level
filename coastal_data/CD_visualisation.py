@@ -40,8 +40,8 @@ def movie(df, x_poly, y_poly, col_list, first_col, savepath, fn):
     ax.add_image(request, zoom, alpha=0.7, zorder=0)
     
     # Initial state
-    scat = ax.scatter(x_poly, y_poly, marker='.', s=10, c=df[first_col],
-                      transform=ccrs.PlateCarree(), cmap='BrBG_r', vmin=-8, vmax=8)
+    scat = ax.scatter(x_poly, y_poly, marker='.', s=1, c=df[first_col],
+                      transform=ccrs.PlateCarree(), cmap='BrBG_r', vmin=-1, vmax=1)
     title = ax.set_title(first_col)
     fig.colorbar(scat, shrink=1, pad=.12, label='[m]')
     
