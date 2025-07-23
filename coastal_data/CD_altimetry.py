@@ -363,6 +363,10 @@ def get_altimetry_timeseries_from_polygon(sla, lon, lat, time, epsg_in, epsg_out
     alt_temp_av = alt_gdf_red.groupby(pd.Grouper(freq=freq_average)).mean()
     return alt_temp_av
 
+# ===================================================================================
+# Create time series by weighting cells according to their correlation and trend
+# ===================================================================================
+
 def extract_single_cell(sla, lon, lat, time, cells_to_extract, epsg_in, epsg_out):
     alt_gdf = gpd.GeoDataFrame({'sla':sla},
                            geometry = gpd.points_from_xy(lon, lat))    
@@ -372,8 +376,8 @@ def extract_single_cell(sla, lon, lat, time, cells_to_extract, epsg_in, epsg_out
 
     # Chessboard binning
     gridsize = {'x':50, 'y':50} # [km]
-    alt_gdf, centers, x_vec, y_vec = CD_altimetry.chessboard_binning(alt_gdf, gridsize)
-    alt_gdf = CD_altimetry.get_distance_to_cell_centers(alt_gdf, centers)
+    alt_gdf, centers, x_vec, y_vec = chessboard_binning(alt_gdf, gridsize)
+    alt_gdf = get_distance_to_cell_centers(alt_gdf, centers)
 
     monthly_index = alt_gdf['sla'].groupby(pd.Grouper(freq='ME')).mean().index
     alt_ex = pd.DataFrame(index=monthly_index) # df to store all monthly time series, one cell per column
@@ -397,6 +401,60 @@ def extract_single_cell(sla, lon, lat, time, cells_to_extract, epsg_in, epsg_out
 
     return alt_ex
     
+def get_correlation_per_cell(alt_ex, tg):
+    corr = pd.DataFrame()
+    tg_at_alt_time = interpolate_tg_to_alt(alt_ex.index, tg.index, tg)
+    for cell in alt_ex.columns:
+        idx, = np.where(~alt_ex[cell].isna())
+        corr[cell] = stats.pearsonr(alt_ex[cell].iloc[idx], tg_at_alt_time.iloc[idx])
+    
+    corr = corr.drop(1) # drop p-values
+    return corr
+
+def get_trend_diff_per_cell(alt_ex, tg):
+    trend_diff = pd.DataFrame() #(index=alt_ex.columns)
+
+    for cell in alt_ex.columns:
+        # trend altimetry
+        x_alt = CD_helper_functions.datetime_to_decimal_numbers(alt_ex[cell].index)
+        trend_alt = CD_statistics.compute_trend(x_alt,alt_ex[cell].values*1000) # [mm/year]
+
+        # trend PSMSL for same time period
+        idx_tg_in_alt_period, = np.where((tg.index > alt_ex.index[0]) \
+                               & (tg.index < alt_ex.index[-1]))
+
+        if len(idx_tg_in_alt_period) >= 5:
+            tg_red_to_alt = tg.iloc[idx_tg_in_alt_period]
+            x_tg = CD_helper_functions.datetime_to_decimal_numbers(tg_red_to_alt.index)
+
+            trend_tg = CD_statistics.compute_trend(x_tg, tg_red_to_alt.values*10)
+        else:
+            trend_tg = np.nan
+
+        trend_diff[cell] = [trend_alt - trend_tg]
+
+    return trend_diff
+
+def timeseries_as_weighted_average(alt_ex, corr, trend_diff, w_corr=0.5):
+    '''
+    Weighting with correlation and trend difference.
+    w_corr: Total sum of weights for correlation
+    '''
+    w_trenddiff = 1 - w_corr
+    ts = pd.DataFrame(index=alt_ex.index, columns=['sla'], dtype='float')
+    
+    norm_factor_corr = 1/corr.T.sum()
+    corr_norm = w_corr * corr.T * norm_factor_corr # corr_norm.sum() = 0.5
+    
+    norm_factor_trend = 1/(1/trend_diff.T).sum()
+    trend_norm = w_trenddiff * (1/trend_diff.T * norm_factor_trend) # trend_norm.sum() = 0.5
+    
+    weight = corr_norm + trend_norm # weight.sum() = 1
+
+    for col_idx in range(0, len(alt_ex)):
+        ts.iloc[col_idx] = np.nansum(alt_ex.iloc[col_idx].values * weight.T.values)
+    
+    return ts
     
 # ===================================================================================
 # Helper Functions
