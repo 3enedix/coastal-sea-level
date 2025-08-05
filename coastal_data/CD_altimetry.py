@@ -16,18 +16,6 @@ from coastal_data import CD_statistics, CD_helper_functions
 
 import pdb
 
-# matplotlib fontsizes
-SMALL_SIZE = 15
-MEDIUM_SIZE = 20
-BIGGER_SIZE = 25
-plt.rc('font', size=MEDIUM_SIZE)          # controls default text sizes
-plt.rc('axes', titlesize=MEDIUM_SIZE)    # fontsize of the axes title
-plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
-plt.rc('xtick', labelsize=SMALL_SIZE)   # fontsize of the tick labels
-plt.rc('ytick', labelsize=SMALL_SIZE)   # fontsize of the tick labels
-plt.rc('legend', fontsize=MEDIUM_SIZE)   # legend fontsize
-plt.rc('figure', titlesize=MEDIUM_SIZE)  # fontsize of the figure title
-
 # ===================================================================================
 # OpenADB ALES Data Preparation
 # ===================================================================================
@@ -149,7 +137,7 @@ def clean_rads(rads_data, sla_var):
 # Get Altimetry Timeseries
 # ===================================================================================
 
-def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, gridsize, period_covered, freq_average='ME'):
+def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, tg_lon, tg_lat, gridsize, period_covered, freq_average='ME'):
     '''
     Create a timeseries from along-track altimetry data
     that fits best to a nearby tide gauge
@@ -167,6 +155,7 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, gr
         ! cell numbers change for different crs !
         ! out epsg can not be WGS84 (epgs 4326) !
     tg - pandas Series of corrected tide gauge data (corrected for IB and VLM) with DatetimeIndex
+    tg_lon, tg_lat: longitude and latitude of tide gauge (only used for plot)
     gridsize - dict, gridsize in x- and y-direction to bin timeseries into chessboard-cells
         e.g.: gridsize = {'x':25, 'y':25} # [km]
     period_covered - dict, min and max dates of the timeseries used for comparison with the tide gauge
@@ -281,15 +270,15 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, gr
     savepath = './' # !#$^%! hard coded path
     
     fig1, ax1 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
-    plot_map(ax1, epsg_out, centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
+    plot_map(ax1, epsg_out, centers, cell_stats, cell_stats_long, 'R', x_vec, y_vec, alt_gdf, tg_lon, tg_lat, vmin=0, vmax=1, cmap='YlGn', title='Correlation', label='R')
     plt.savefig(savepath+'correlation.png', dpi=300, bbox_inches='tight')
     
     fig2, ax2 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
-    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, vmin=0, vmax=.5, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
+    plot_map(ax2, epsg_out, centers, cell_stats, cell_stats_long, 'RMSE', x_vec, y_vec, alt_gdf, tg_lon, tg_lat, vmin=0, vmax=.5, cmap='YlOrBr', title='RMSE', label='RMSE [m]')
     plt.savefig(savepath+'RMSE.png', dpi=300, bbox_inches='tight')
     
     fig3, ax3 = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, figsize=(30,30))
-    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, vmin=-10.0, vmax=10.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
+    plot_map(ax3, epsg_out, centers, cell_stats, cell_stats_long, 'trend_diff', x_vec, y_vec, alt_gdf, tg_lon, tg_lat, vmin=-10.0, vmax=10.0, cmap='bwr', title='Trend difference', label='Trend difference [mm/year]')
     plt.savefig(savepath+'trend_diff.png', dpi=300, bbox_inches='tight')
 
     # Get user input which cells to extract
@@ -622,12 +611,13 @@ def reformat_chess_data(cell_stats, param, x_vec, y_vec):
     
     return chess_stats_full_re
 
-def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_gdf, vmin=None, vmax=None, cmap='Blues', title='', label=''):
+def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_gdf, tg_lon, tg_lat, vmin=None, vmax=None, cmap='Blues', title='', label=''):
     '''
     first create fig and ax like:
         fig = plt.figure(figsize=(12,12))
         ax = plt.axes(projection=ccrs.PlateCarree())
     '''
+    # interactive plotting not possible on server
     # plt.ion()
     # manager = plt.get_current_fig_manager()
     # manager.window.showMaximized()   
@@ -636,23 +626,28 @@ def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec
     projection = ccrs.epsg(epsg)    
     ax.gridlines(draw_labels=True, crs=ccrs.PlateCarree())
     ax.add_feature(LAND, edgecolor = 'darkgray', facecolor = "lightgray", zorder=2)
+    
     plot = ax.pcolormesh(x_vec, y_vec, data_re, transform=projection, cmap=cmap, vmin=vmin, vmax=vmax)
     ax.scatter(alt_gdf.geometry.x, alt_gdf.geometry.y, marker='+', s=1, c='darkgrey', transform=projection)
+    ax.plot(tg_lon, tg_lat, 'o', color='red', markersize=10, transform=ccrs.PlateCarree())
     
+    fs = 40 # fontsize
     # plot cell numbers
     for cell_nr in centers.index:
         if cell_nr in cell_stats_long.index:
-            text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=18,
+            text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=fs,
                     transform=projection, bbox=dict(boxstyle="square", fill=False))
         else:
-            text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=18,
+            text = ax.text(centers.loc[cell_nr, 'center'].x-5000,centers.loc[cell_nr, 'center'].y-5000,str(cell_nr), fontsize=fs,
                     transform=projection)
 
-    ax.set_title(title)
+    ax.set_title(title, fontsize=fs)
     # ax.text(0, -0.1, 'Press any button to continue.', transform=ax.transAxes)
     
     # plt.show()
-    plt.colorbar(plot, shrink=1, pad=0.1, label=label, ax=ax)
+    cbar = plt.colorbar(plot, shrink=.65, pad=0.1, ax=ax)
+    cbar.set_label(label, fontsize=fs)
+    cbar.ax.tick_params(labelsize=fs)
     # plt.draw()
     # plt.pause(0.01)
     # plt.waitforbuttonpress()
