@@ -13,15 +13,15 @@ def plot_basemap(extent, zoom):
     projection = ccrs.PlateCarree()
 
     request = cimgt.GoogleTiles(style="satellite")
-    fig, ax = plt.subplots(figsize=(15,8), subplot_kw=dict(projection=request.crs))
-    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    fig, ax = plt.subplots(figsize=(20,10), subplot_kw=dict(projection=request.crs))
+    if extent != None:
+        ax.set_extent(extent, crs=ccrs.PlateCarree())
     ax.gridlines(draw_labels=True, zorder=0, color='lightgrey')
-    zoom = zoom
     ax.add_image(request, zoom, alpha=0.7, zorder=0)
     
     return fig, ax
 
-def movie(df, x_poly, y_poly, col_list, first_col, savepath, fn):
+def movie(df, x_poly, y_poly, col_list, first_col, extent, zoom, pixelsize, savepath, fn):
     '''
     Create and save animation of Kalman filter or RTS smoother results.
     '''    
@@ -34,13 +34,12 @@ def movie(df, x_poly, y_poly, col_list, first_col, savepath, fn):
     projection = ccrs.PlateCarree()
     request = cimgt.GoogleTiles(style="satellite")
     fig, ax = plt.subplots(figsize=(15,8), subplot_kw=dict(projection=request.crs));
-    ax.set_extent([5.1, 5.6, 53.32, 53.5], crs=ccrs.PlateCarree())
+    ax.set_extent(extent, crs=ccrs.PlateCarree())
     ax.gridlines(draw_labels=True, zorder=0, color='lightgrey')
-    zoom = 10
     ax.add_image(request, zoom, alpha=0.7, zorder=0)
     
     # Initial state
-    scat = ax.scatter(x_poly, y_poly, marker='.', s=1, c=df[first_col],
+    scat = ax.scatter(x_poly, y_poly, marker='.', s=pixelsize, c=df[first_col],
                       transform=ccrs.PlateCarree(), cmap='BrBG_r', vmin=-1, vmax=1)
     title = ax.set_title(first_col)
     fig.colorbar(scat, shrink=1, pad=.12, label='[m]')
