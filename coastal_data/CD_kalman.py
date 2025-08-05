@@ -148,20 +148,22 @@ def initial_state(poly_target, med_sl, epsg, resolution, c_shorelines, alt, path
     pickle.dump(zip(x_poly, y_poly), open(path_output+f'xy_poly_{epsg}.pkl', 'wb'))
     
     # 2. Get global DEMS
-    fn = 'gebco_2023_n53.5439_s53.2693_w5.0194_e5.6607.nc'
     gebco = xr.open_dataset(path_input+fn_gebco)
-    fn = 'DeltaDTM_v1_0_N53E005.tif'
     ddtm = xr.open_dataset(path_input+fn_ddtm).squeeze()
 
     if epsg != 4326:
         poly_4326 = CD_geometry.transform_polygon(poly_target, epsg, 4326)
     else:
         poly_4326 = poly_target
+    
+    # Increase target poly for GEBCO (often not enough points for interpolation over entire target area)
+    buffer_gebco = CD_geometry.dist_meter_to_dist_deg(200)
+    poly_gebco = poly_4326.buffer(buffer_gebco)
 
     # If kernel dies, there are too many points for 'gpd.points_from_xy(dem_df.x, dem_df.y)'
     # Shutting all other kernels can help
     ddtm_gdf = CD_geometry.cut_DEM_to_target_area(ddtm, 'band_data', poly_4326, 'ddtm')
-    gebco_gdf = CD_geometry.cut_DEM_to_target_area(gebco, 'elevation', poly_4326, 'gebco')
+    gebco_gdf = CD_geometry.cut_DEM_to_target_area(gebco, 'elevation', poly_gebco, 'gebco')
 
     # del ddtm, gebco
     
