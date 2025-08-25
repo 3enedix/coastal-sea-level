@@ -188,7 +188,7 @@ def initial_state(poly_target, med_sl, epsg, resolution, c_shorelines, alt, path
     else:
         bias = 0
         print(f'No overlapping area between GEBCO and DeltaDTM.')
-    
+
     # Remove the bias from GEBCO (and overwrite dataframe variable)
     gebco_interp.elevation = gebco_interp.elevation - bias
 
