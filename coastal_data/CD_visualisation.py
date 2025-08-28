@@ -10,8 +10,6 @@ import cartopy.io.img_tiles as cimgt
 import tabulate
 
 def plot_basemap(extent, zoom):
-    projection = ccrs.PlateCarree()
-
     request = cimgt.GoogleTiles(style="satellite")
     fig, ax = plt.subplots(figsize=(20,10), subplot_kw=dict(projection=request.crs))
     if extent != None:
