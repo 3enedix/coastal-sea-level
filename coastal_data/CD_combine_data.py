@@ -5,7 +5,7 @@ import geopandas as gpd
 import numpy as np
 from shapely import get_coordinates, LineString
 import pdb
-from coastal_data import CD_geometry
+from coastal_data import CD_geometry, CD_statistics
 
 def combine_cassie(path, folders, epsg):
     '''
@@ -39,7 +39,10 @@ def combine_cassie(path, folders, epsg):
             datelist.append(date)
     
             sl_4326 = sl['geometry']['coordinates']
-            sl_transformed = [transformer.transform(_[0], _[1]) for _ in sl_4326]
+            if epsg == 4326:
+                sl_transformed = [transformer.transform(_[0], _[1]) for _ in sl_4326]
+            else:
+                sl_transformed = [transformer.transform(_[1], _[0]) for _ in sl_4326]
             sllist_temp = [list(_) for _ in sl_transformed]
     
             sllist.append(np.array(sllist_temp))
@@ -186,3 +189,34 @@ def extract_shorelines_from_period(rs_shoreline, startdate, enddate):
     shorelines = [rs_shoreline['shorelines'][_] for _ in idx_cassie]
 
     return dates_cassie, shorelines
+
+def tidal_correction(cd_sl, tides, beach_slope):
+    '''
+    Input
+    -----
+    cd_sl
+    tides
+    beach_slope
+
+    cd_tidalcorr_sm
+
+    Output
+    -----
+    '''
+    reference_elevation = 0
+    thresh_pos = 100 # [m] threshold the corrections to eliminate outliers
+    thresh_neg = -thresh_pos
+    
+    cd_tidalcorr = {}
+    for key in cd_sl.keys():
+        corr = (tides - reference_elevation) / beach_slope #[key]
+        corr[corr > thresh_pos] = thresh_pos
+        corr[corr < thresh_neg] = thresh_neg
+        cd_tidalcorr[key] = cd_sl[key] - corr       
+        
+    # Smoothing
+    cd_tidalcorr_sm = {}
+    for key in cd_tidalcorr.keys():
+        cd_tidalcorr_sm[key] = CD_statistics.moving_average(cd_tidalcorr[key], n=5)
+    
+    return cd_tidalcorr_sm
