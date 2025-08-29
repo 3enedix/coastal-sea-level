@@ -157,7 +157,7 @@ def initial_state(poly_target, med_sl, epsg, resolution, c_shorelines, alt, path
         poly_4326 = poly_target
     
     # Increase target poly for GEBCO (often not enough points for interpolation over entire target area)
-    buffer_gebco = CD_geometry.dist_meter_to_dist_deg(200)
+    buffer_gebco = CD_geometry.dist_meter_to_dist_deg(300)
     poly_gebco = poly_4326.buffer(buffer_gebco)
 
     # If kernel dies, there are too many points for 'gpd.points_from_xy(dem_df.x, dem_df.y)'
