@@ -41,8 +41,14 @@ def median_shoreline_from_transect_intersections(shorelines, spacing=100, transe
             continue
         else:
             dist.append(distance(Point(sl[0]), Point(sl[-1])))
-    idx_long, = np.nonzero(dist == np.max(dist))[0]
-    long_sl = LineString(shorelines[idx_long])
+
+    idx_long, = np.nonzero(dist == np.max(dist)) #[0]
+    long_sl = LineString(shorelines[idx_long[0]])
+    # if len(idx_long) > 1:
+    #     long_sl = LineString(shorelines[idx_long[0]])
+    # else:
+    #     long_sl = LineString(shorelines[idx_long])
+        
     smooth_sl = smooth_LineString(long_sl, n=smooth_factor)
     # Create transects
     # if np.unique(get_coordinates(smooth_sl)).size < 4:
@@ -312,7 +318,7 @@ def compute_volume_changes(data, poly, col_name, epsg_out):
     for year in year_list:
         heights = data_in_poly[f'{col_name}{year}']
         vol[year] = heights.mean() * poly_28992.area
-        
+
     return vol
 
 # ===================================================================================
