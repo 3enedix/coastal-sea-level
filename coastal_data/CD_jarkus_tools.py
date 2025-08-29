@@ -3,6 +3,7 @@ import pandas as pd
 import xarray as xr
 import geopandas as gpd
 from scipy.interpolate import interpn, griddata
+from scipy.signal import find_peaks
 from shapely import LineString
 from shapely.ops import split
 
@@ -112,3 +113,94 @@ def cut_poly_with_transects(jarkus, poly_target_red, idx):
     cut_area = split(split1, transect_1).geoms[1]
 
     return cut_area, split1
+    
+# ===================================================================================
+# Get shoreline as intersection between elevation profile and a horizontal plane at sea level
+# ===================================================================================
+
+def find_intersections(profile, slh):
+    '''
+    Code adapted from JAT (Christa van IJzendoorn)
+    
+    profile : array
+        Topography heights along one profile at one point in time
+    slh : float
+        Sea level height at one point in time
+    '''
+    profile_heights = pd.Series(profile.values[0]).interpolate().tolist()
+    slh_plane = np.resize(slh, (len(profile_heights)))
+
+    # subtract the sea level plane from the profile
+    diff_profile_sl = profile_heights - slh_plane
+
+    # where is the difference positive/negative (-> where is the sea-level-shifted profile below/above zero):
+    below_above = np.sign(diff_profile_sl)
+
+    # where does the sign change:
+    transitions = np.diff(below_above)
+
+    # turn nans into zeros
+    transitions = np.nan_to_num(transitions)
+
+    # get the cross-shore coordinates for all found transitions
+    # get the indices of the land/ocean transitions
+    intersection_idxs = np.nonzero(transitions)
+    intersections = np.array([profile.cross_shore[idx] for idx in intersection_idxs[0]])
+    
+    return intersections
+    
+def find_primary_dunetop(profile):
+    '''
+    Code adapted from JAT (Christa van IJzendoorn)
+    
+    profile : array
+        Topography heights along one profile at one point in time
+    '''
+    primary_dune_height = 5 # standard value from JAT .yaml file
+    primary_dune_prominence = 2.0
+
+    dune_top_prim = find_peaks(profile.values[0], height=primary_dune_height, prominence=primary_dune_prominence)
+
+    if len(dune_top_prim[0]) != 0: # If a peak is found in the profile
+        # Select the most seaward peak found of the primarypeaks
+        dune_top_prim_idx = dune_top_prim[0][-1]
+        DuneTop_prim_x = profile.cross_shore[dune_top_prim_idx].values
+    else:
+        DuneTop_prim_x = np.nan
+        
+    return DuneTop_prim_x
+
+def identify_coastline(intersections, DuneTop_prim_x):
+    '''
+    Code adapted from JAT (Christa van IJzendoorn)
+    
+    intersections: Output of function find_intersections(profile, slh)
+    DuneTop_prim_x: Output of function find_primary_dunetop(profile)
+    '''
+    # Case 1: No primary dunetop found -> Get the most seaward intersect
+    if len(intersections) != 0 and np.isnan(DuneTop_prim_x):
+        coastline = intersections[-1]
+
+    # Case 2: Use primary dunetop as landward border
+    elif len(intersections) != 0:
+        # all intersections seaward of the dunetop:
+        intersection_sw = intersections[intersections > DuneTop_prim_x]
+        if len(intersection_sw) != 0:
+
+            # Case 2.1: Distance between all intersections seaward of dune peak is larger than 100m:
+            if max(intersection_sw) - min(intersection_sw) > 100: 
+                # Get all intersections at least 100m landwards of most offshore intersection 
+                intersection_lw = intersection_sw[intersection_sw < (min(intersection_sw) + 100)] 
+                # Get the most seaward intersection
+                coastline = intersection_lw[-1] 
+
+            # Case 2.2: Distance between all intersections seaward of dune peak is smaller than 100m:
+            else: 
+                # Get the most seaward intersection
+                coastline = intersection_sw[-1]
+        else:
+            coastline = np.nan
+    else:
+        coastline = np.nan
+        
+    return coastline
