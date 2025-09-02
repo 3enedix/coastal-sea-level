@@ -6,6 +6,7 @@ from scipy.interpolate import interpn, griddata
 from scipy.signal import find_peaks
 from shapely import LineString
 from shapely.ops import split
+import pdb
 
 from coastal_data import CD_geometry
 
@@ -127,7 +128,8 @@ def find_intersections(profile, slh):
     slh : float
         Sea level height at one point in time
     '''
-    profile_heights = pd.Series(profile.values[0]).interpolate().tolist()
+    # pdb.set_trace()
+    profile_heights = pd.Series(profile.values).interpolate().tolist()
     slh_plane = np.resize(slh, (len(profile_heights)))
 
     # subtract the sea level plane from the profile
@@ -159,7 +161,7 @@ def find_primary_dunetop(profile):
     primary_dune_height = 5 # standard value from JAT .yaml file
     primary_dune_prominence = 2.0
 
-    dune_top_prim = find_peaks(profile.values[0], height=primary_dune_height, prominence=primary_dune_prominence)
+    dune_top_prim = find_peaks(profile.values, height=primary_dune_height, prominence=primary_dune_prominence)
 
     if len(dune_top_prim[0]) != 0: # If a peak is found in the profile
         # Select the most seaward peak found of the primarypeaks
