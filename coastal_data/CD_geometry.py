@@ -528,8 +528,8 @@ def switch_linestring_xy(line):
     return LineString(list(zip(line_lat, line_lon)))
 
 def transform_general_geom_list(coords, epsg_old, epsg_new):
-    crs_old = CRS.from_epsg(4326)
-    crs_new = CRS.from_epsg(28992)
+    crs_old = CRS.from_epsg(epsg_old)
+    crs_new = CRS.from_epsg(epsg_new)
     transformer = Transformer.from_crs(crs_old, crs_new)
     coords_trans = [transformer.transform(_[1], _[0]) for _ in coords]
     return coords_trans
