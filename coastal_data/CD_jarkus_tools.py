@@ -119,7 +119,7 @@ def cut_poly_with_transects(jarkus, poly_target_red, idx):
 # Get shoreline as intersection between elevation profile and a horizontal plane at sea level
 # ===================================================================================
 
-def find_intersections(profile, slh):
+def find_intersections(profile, slh, cross_shore):
     '''
     Code adapted from JAT (Christa van IJzendoorn)
     
@@ -147,11 +147,12 @@ def find_intersections(profile, slh):
     # get the cross-shore coordinates for all found transitions
     # get the indices of the land/ocean transitions
     intersection_idxs = np.nonzero(transitions)
-    intersections = np.array([profile.cross_shore[idx] for idx in intersection_idxs[0]])
+    # intersections = np.array([profile.cross_shore[idx] for idx in intersection_idxs[0]])
+    intersections = np.array([cross_shore[idx] for idx in intersection_idxs[0]])
     
     return intersections
     
-def find_primary_dunetop(profile):
+def find_primary_dunetop(profile, cross_shore):
     '''
     Code adapted from JAT (Christa van IJzendoorn)
     
@@ -166,7 +167,7 @@ def find_primary_dunetop(profile):
     if len(dune_top_prim[0]) != 0: # If a peak is found in the profile
         # Select the most seaward peak found of the primarypeaks
         dune_top_prim_idx = dune_top_prim[0][-1]
-        DuneTop_prim_x = profile.cross_shore[dune_top_prim_idx].values
+        DuneTop_prim_x = cross_shore[dune_top_prim_idx].values
     else:
         DuneTop_prim_x = np.nan
         
