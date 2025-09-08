@@ -9,13 +9,14 @@ import cartopy.io.img_tiles as cimgt
 
 import tabulate
 
-def plot_basemap(extent, zoom):
+def plot_basemap(extent, zoom, background=True):
     request = cimgt.GoogleTiles(style="satellite")
     fig, ax = plt.subplots(figsize=(20,10), subplot_kw=dict(projection=request.crs))
     if extent != None:
         ax.set_extent(extent, crs=ccrs.PlateCarree())
     ax.gridlines(draw_labels=True, zorder=0, color='lightgrey')
-    ax.add_image(request, zoom, alpha=0.7, zorder=0)
+    if background:
+        ax.add_image(request, zoom, alpha=0.7, zorder=0)
     
     return fig, ax
 
