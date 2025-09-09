@@ -167,7 +167,7 @@ def find_primary_dunetop(profile, cross_shore):
     if len(dune_top_prim[0]) != 0: # If a peak is found in the profile
         # Select the most seaward peak found of the primarypeaks
         dune_top_prim_idx = dune_top_prim[0][-1]
-        DuneTop_prim_x = cross_shore[dune_top_prim_idx].values
+        DuneTop_prim_x = cross_shore[dune_top_prim_idx]
     else:
         DuneTop_prim_x = np.nan
         
