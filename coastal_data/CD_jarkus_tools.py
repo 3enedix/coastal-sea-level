@@ -168,11 +168,11 @@ def find_primary_dunetop(profile, cross_shore):
         dune_top_prim_idx = dune_top_prim[0][-1]
         if isinstance(cross_shore, xr.DataArray):
             DuneTop_prim_x = cross_shore[dune_top_prim_idx].values
-        elif instance(cross_shore, pd.DataFrame):
+        elif isinstance(cross_shore, np.ndarray):
             DuneTop_prim_x = cross_shore[dune_top_prim_idx]
     else:
         DuneTop_prim_x = np.nan
-        
+    
     return DuneTop_prim_x
 
 def identify_coastline(intersections, DuneTop_prim_x):
