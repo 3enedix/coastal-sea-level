@@ -309,7 +309,7 @@ def compute_volume_changes(data, poly, col_name, epsg_out):
     -----
     vol - Time series of volume changes as dictionary
     '''
-    poly_28992 = transform_polygon(poly, 4326, epsg_out)
+    poly_local = transform_polygon(poly, 4326, epsg_out)
     data_in_poly = data[data.intersects(poly)]
     
     year_list = [int(_) for _ in data.drop(columns='geometry').columns.str.replace(col_name, '')]
@@ -317,7 +317,7 @@ def compute_volume_changes(data, poly, col_name, epsg_out):
     vol = {}
     for year in year_list:
         heights = data_in_poly[f'{col_name}{year}']
-        vol[year] = heights.mean() * poly_28992.area
+        vol[year] = heights.mean() * poly_local.area
 
     return vol
 
