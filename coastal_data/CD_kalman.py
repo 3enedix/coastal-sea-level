@@ -15,16 +15,57 @@ from collections import OrderedDict
 
 from geocube.api.core import make_geocube
 
-from coastal_data import CD_matrix_tools, CD_geometry, CD_combine_data, CD_jarkus_tools
+from coastal_data import CD_matrix_tools, CD_geometry, CD_combine_data, CD_jarkus_tools, CD_statistics
 
 import pdb
 
 # ===================================================================================
 # Entire forward/backward run
 # ===================================================================================
+def forward_backward_with_trend(n_iter, year_start, year_end, init, std_init, rs_shoreline, seg_length, alt,
+                                tidal_corr, epsg, T_is_identity, max_distance, w_id,
+                                max_noupdate, std_pseudobs, sigma_l, sigma_q, eps_factor):
+    # Initial mean and trend
+    init_df = init.to_dataframe().reset_index()
+    x_mean = init_df['band_data']
+    x_trend = np.full(len(init_df.index), 0)
+
+    for j in range(0, n_iter):
+        print(f'Iteration {j}:')
+        x_state, sigma_xx_up, sigma_xx_pred, updated_points, T = forward_run(
+                                year_start, year_end, init, std_init, rs_shoreline, seg_length, alt,
+                                tidal_corr, epsg, T_is_identity, max_distance, w_id,
+                                max_noupdate, std_pseudobs, sigma_l, sigma_q, eps_factor, x_mean, x_trend)
+        
+        x_state_s, sigma_xx_s = backward_run(x_state, sigma_xx_up, sigma_xx_pred, year_end, T, eps_factor)
+        
+        # Re-add mean and trend from before KF
+        idx_up, = np.where((updated_points.drop(columns='counter') == 0).any(axis=1))
+        year_list = [int(_.replace('x_s_', '')) for _ in x_state_s.drop(columns='geometry').columns]
+        years_sorted = np.sort(np.array(year_list))
+        for k, year in enumerate(years_sorted):
+            x_state.loc[idx_up, f'x_up_{year}'] += x_mean
+            x_state.loc[idx_up, f'x_pred_{year}'] += x_mean
+            x_state_s.loc[idx_up, f'x_s_{year}'] += x_mean
+            if year != year_start:
+                x_state[f'x_up_{year}'] += x_trend * k
+                x_state[f'x_pred_{year}'] += x_trend * k
+                x_state_s[f'x_s_{year}'] += x_trend * k
+
+        # Compute new mean and trend
+        # x_mean = x_state_s.drop(columns='geometry').mean(axis=1) # mean over all years, separate for each grid point
+        x_mean = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')]).mean(axis=1)
+        # trend_new = compute_trend_in_each_gridpoint(x_state_s)['trend_rts']
+        trend_new = compute_trend_in_each_gridpoint(x_state)['trend']
+        print(f'Mean trend difference (old - new): {round(np.nanmean(x_trend - trend_new), 2)} m/year')
+        if j < n_iter:
+            x_trend = trend_new
+    
+    return x_state, x_state_s, x_trend, x_mean
+
 def forward_run(year_start, year_end, init, std_init, rs_shoreline, seg_length, alt, tidal_corr,
                   epsg, T_is_identity, max_distance, w_id, max_noupdate, std_pseudobs,
-                  sigma_l, sigma_q, eps_factor):
+                  sigma_l, sigma_q, eps_factor, x_mean, x_trend):
     start_time = time.perf_counter()
 
     # Initialise state vector
@@ -48,9 +89,10 @@ def forward_run(year_start, year_end, init, std_init, rs_shoreline, seg_length, 
 
     # Initialise updated points, and dicts to save predicted and updated covariance matrices
     updated_points = pd.DataFrame({'counter': np.full(len(x_state), 0)}, index=range(0, len(x_state)))
-    sigma_xx_up, sigma_xx_pred = {}, {}    
-
-    for i, year in enumerate(range(year_start, year_end+1)):      
+    sigma_xx_up, sigma_xx_pred = {}, {}
+    
+    year_ref = 1993
+    for year in range(year_start, year_end+1):      
         startdate = str(year) + '-01-01' # '1993-01-01'
         enddate = str(year+1) + '-01-01' # '1994-01-01'
 
@@ -70,6 +112,8 @@ def forward_run(year_start, year_end, init, std_init, rs_shoreline, seg_length, 
         # Observation vector and design matrix
         l = int_pc['ssh']
         A = build_designmatrix_nn(x_state, int_pc)
+        deltaYear = year - year_ref
+        l = l - A@x_trend * deltaYear - A@x_mean 
         updated_points = track_updated_points(updated_points, A, year)
 
         # sigma_ll: Covariance matrix of the observations
@@ -522,7 +566,7 @@ def infuse_pseudo_observation(updated_points, max_noupdate, x_state, int_pc):
 
     return updated_points, int_pc
 
-def interpolate_results(jarkus_gdf, x_state, x_state_s, updated_points):
+def interpolate_results(jarkus_gdf, x_state, x_state_s):
     '''
     Interpolate results from forward Kalman filter and backward RTS smoother
     onto the JARKUS grid.
@@ -564,7 +608,30 @@ def interpolate_results(jarkus_gdf, x_state, x_state_s, updated_points):
     
     return kf_interp, rts_interp #, kf_interp_up, rts_interp_up
 
+# def compute_trend_in_each_gridpoint(x_state_s):
+#     '''
+#     Compute trend in each point of the target grid
+#     '''
+#     trend_rts = pd.DataFrame(index=x_state_s.index, columns=['trend_rts'], dtype='float')
+#     for point in x_state_s.index:
+#         xs_ts = x_state_s.drop(columns='geometry').iloc[point]
+#         year_list = [int(_.replace('x_s_', '')) for _ in xs_ts.index]
 
+#         if np.all(np.isnan(xs_ts)):
+#             continue
+#         trend_rts.iloc[point], _, _ = CD_statistics.compute_trend_with_error(year_list, xs_ts.values) # [m/year]
+#     return trend_rts
 
+def compute_trend_in_each_gridpoint(x_state):
+    '''
+    Compute trend in each point of the target grid
+    '''
+    trend_kf = gpd.GeoDataFrame(index=x_state.index, geometry=x_state.geometry, dtype='float')
+    for point in x_state.index:
+        x_ts = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')]).iloc[point].copy()
+        year_list = [int(col.split('_')[-1]) for col in x_state.columns if col.startswith('x_up_')]
 
-
+        if np.all(np.isnan(x_ts)):
+            continue
+        trend_kf.loc[point, 'trend'], _, _ = CD_statistics.compute_trend_with_error(year_list, x_ts.values) # [m/year]
+    return trend_kf
