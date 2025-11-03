@@ -128,10 +128,9 @@ def waterline_method_period(rs_shoreline, seg_len, ssh, tidal_corr, startdate, e
         return None
 
     # Equalise segment lengths
-    [get_coordinates(CD_geometry.equalise_LineString_segment_lengths(LineString(shoreline), seg_len)) for shoreline in shorelines]
+    # shorelines = [get_coordinates(CD_geometry.equalise_LineString_segment_lengths(LineString(shoreline), seg_len)) for shoreline in shorelines]
     
     # Initialise geodataframe with shoreline coordinates and corresponding sea level
-    # combined_gdf = gpd.GeoDataFrame(columns=['dates', 'ssh', 'coords'], geometry='coords') # trigger future warning when concatenating
     combined_gdf = gpd.GeoDataFrame()
     for i, cassie_date in enumerate(dates_cassie):
         # Get the sea level observation from the respective month
