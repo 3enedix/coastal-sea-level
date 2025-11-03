@@ -22,67 +22,39 @@ import pdb
 # ===================================================================================
 # Entire forward/backward run
 # ===================================================================================
-def forward_backward_with_trend(n_iter, year_start, year_end, init, std_init, rs_shoreline, seg_length, alt,
-                                tidal_corr, epsg, T_is_identity, max_distance, w_id,
-                                max_noupdate, std_pseudobs, sigma_l, sigma_q, eps_factor):
-    # Initial mean and trend
-    init_df = init.to_dataframe().reset_index()
-    x_mean = init_df['band_data']
-    x_trend = np.full(len(init_df.index), 0)
+# def forward_backward_with_trend(n_iter, year_start, year_end, init, std_init, rs_shoreline, seg_length, alt,
+#                                 tidal_corr, epsg, T_is_identity, max_distance, w_id,
+#                                 max_noupdate, std_pseudobs, sigma_l, sigma_q, eps_factor):
+#     # Initial mean and trend
+#     init_df = init.to_dataframe().reset_index()
+#     x_mean = init_df['band_data']
+#     x_trend = np.full(len(init_df.index), 0)
 
-    for j in range(0, n_iter):
-        print(f'Iteration {j}:')
-        x_state, sigma_xx_up, sigma_xx_pred, updated_points, T = forward_run(
-                                year_start, year_end, init, std_init, rs_shoreline, seg_length, alt,
-                                tidal_corr, epsg, T_is_identity, max_distance, w_id,
-                                max_noupdate, std_pseudobs, sigma_l, sigma_q, eps_factor, x_mean, x_trend)
+#     for j in range(0, n_iter):
+#         print(f'Iteration {j}:')
+#         x_state, sigma_xx_up, sigma_xx_pred, updated_points, T = forward_run(
+#                                 year_start, year_end, init, std_init, rs_shoreline, seg_length, alt,
+#                                 tidal_corr, epsg, T_is_identity, max_distance, w_id,
+#                                 max_noupdate, std_pseudobs, sigma_l, sigma_q, eps_factor, x_mean, x_trend)
         
-        x_state_s, sigma_xx_s = backward_run(x_state, sigma_xx_up, sigma_xx_pred, year_end, T, eps_factor)
-        
-        # Re-add mean and trend from before KF
-        idx_up, = np.where((updated_points.drop(columns='counter') == 0).any(axis=1))
-        year_list = [int(_.replace('x_s_', '')) for _ in x_state_s.drop(columns='geometry').columns]
-        years_sorted = np.sort(np.array(year_list))
-        for k, year in enumerate(years_sorted):
-            x_state.loc[idx_up, f'x_up_{year}'] += x_mean
-            x_state.loc[idx_up, f'x_pred_{year}'] += x_mean
-            x_state_s.loc[idx_up, f'x_s_{year}'] += x_mean
-            if year != year_start:
-                x_state[f'x_up_{year}'] += x_trend * k
-                x_state[f'x_pred_{year}'] += x_trend * k
-                x_state_s[f'x_s_{year}'] += x_trend * k
+#         x_state_s, sigma_xx_s = backward_run(x_state, sigma_xx_up, sigma_xx_pred, year_end, T, eps_factor)
 
-        # Compute new mean and trend
-        # x_mean = x_state_s.drop(columns='geometry').mean(axis=1) # mean over all years, separate for each grid point
-        x_mean = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')]).mean(axis=1)
-        # trend_new = compute_trend_in_each_gridpoint(x_state_s)['trend_rts']
-        trend_new = compute_trend_in_each_gridpoint(x_state)['trend']
-        print(f'Mean trend difference (old - new): {round(np.nanmean(x_trend - trend_new), 2)} m/year')
-        if j < n_iter:
-            x_trend = trend_new
+#         # New mean and trend
+#         # x_mean = x_state_s.drop(columns='geometry').mean(axis=1) # mean over all years, separate for each grid point
+#         x_mean = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')]).mean(axis=1)
+#         # trend_new = compute_trend_in_each_gridpoint(x_state_s)['trend_rts']
+#         trend_new = compute_trend_in_each_gridpoint(x_state)['trend']
+#         print(f'Mean trend difference (old - new): {round(np.nanmean(x_trend - trend_new), 2)} m/year')
+#         if j < n_iter:
+#             x_trend = trend_new
     
-    return x_state, x_state_s, x_trend, x_mean
+#     return x_state, x_state_s, x_trend, x_mean
 
-def forward_run(year_start, year_end, init, std_init, rs_shoreline, seg_length, alt, tidal_corr,
+def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, rs_shoreline, seg_length, alt, tidal_corr,
                   epsg, T_is_identity, max_distance, w_id, max_noupdate, std_pseudobs,
-                  sigma_l, sigma_q, eps_factor, x_mean, x_trend):
+                  sigma_l, sigma_q, eps_factor, x_trend, year_ref):
+
     start_time = time.perf_counter()
-
-    # Initialise state vector
-    init_df = init.to_dataframe()
-    x = init_df.index.get_level_values('x')
-    y = init_df.index.get_level_values('y')    
-    x_state = gpd.GeoDataFrame({'init': init_df.band_data.values}, geometry=gpd.points_from_xy(x, y))
-    x_state = x_state.set_crs(epsg)
-
-    # Covariance matrix of the initial state
-    sigma_xx_init_df = gpd.GeoDataFrame({'sigma': std_init**2}, geometry=gpd.points_from_xy(x, y), index=x_state.index)
-    sigma_xx_init = diags_array(sigma_xx_init_df.sigma)
-    # sigma_xx_init = np.diag(sigma_xx_init_df.sigma) # dense array format
-
-    # "Iteration 0"
-    x_k = x_state['init'].copy()
-    sigma_xx_k = sigma_xx_init
 
     # Transition matrix
     T = build_transitionmatrix(T_is_identity, x_state, max_distance, w_id)
@@ -91,7 +63,6 @@ def forward_run(year_start, year_end, init, std_init, rs_shoreline, seg_length, 
     updated_points = pd.DataFrame({'counter': np.full(len(x_state), 0)}, index=range(0, len(x_state)))
     sigma_xx_up, sigma_xx_pred = {}, {}
     
-    year_ref = 1993
     for year in range(year_start, year_end+1):      
         startdate = str(year) + '-01-01' # '1993-01-01'
         enddate = str(year+1) + '-01-01' # '1994-01-01'
@@ -113,7 +84,8 @@ def forward_run(year_start, year_end, init, std_init, rs_shoreline, seg_length, 
         l = int_pc['ssh']
         A = build_designmatrix_nn(x_state, int_pc)
         deltaYear = year - year_ref
-        l = l - A@x_trend * deltaYear - A@x_mean 
+        # l = l - A@x_trend * deltaYear - A@x_mean
+        l = l - A@x_trend * deltaYear
         updated_points = track_updated_points(updated_points, A, year)
 
         # sigma_ll: Covariance matrix of the observations
@@ -626,12 +598,13 @@ def compute_trend_in_each_gridpoint(x_state):
     '''
     Compute trend in each point of the target grid
     '''
-    trend_kf = gpd.GeoDataFrame(index=x_state.index, geometry=x_state.geometry, dtype='float')
+    trend_kf = pd.DataFrame(index=x_state.index, columns=['trend'], dtype='float')
     for point in x_state.index:
-        x_ts = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')]).iloc[point].copy()
+        x_ts = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')]).loc[point].copy()
+        # x_ts = x_state.loc[point].copy()
         year_list = [int(col.split('_')[-1]) for col in x_state.columns if col.startswith('x_up_')]
 
-        if np.all(np.isnan(x_ts)):
+        if len(x_ts[~np.isnan(x_ts.values)]) < 4:
             continue
         trend_kf.loc[point, 'trend'], _, _ = CD_statistics.compute_trend_with_error(year_list, x_ts.values) # [m/year]
-    return trend_kf
+    return trend_kf.values
