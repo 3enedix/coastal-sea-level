@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
+import geojson
 from scipy.interpolate import interpn, griddata
 from scipy.signal import find_peaks
 from shapely import LineString
@@ -64,6 +65,29 @@ def get_jarkus_data(datapath_jarkus, year_start, year_end, poly_target, init):
     
     return jarkus_gdf
 
+def get_jarkus_transects(jarkus, epsg, savepath):
+    if epsg == 28992:
+        x = jarkus.x.values
+        y = jarkus.y.values
+        # x0 = jarkus.rsp_x.values
+        # y0 = jarkus.rsp_y.values
+    elif epsg == 4326:
+        x = jarkus.lon.values
+        y = jarkus.lat.values
+        # x0 = jarkus.rsp_lon.values
+        # y0 = jarkus.rsp_lat.values
+        
+    featureList = []
+    for i, id_trans in enumerate(jarkus.id):
+        trans_line_temp = geojson.LineString([(x[i,0], y[i,0]), (x[i,-1], y[i,-1])])
+        # trans_line_temp = geojson.LineString([(x0[i], y0[i]), (x[i,-1], y[i,-1])]) # origin in rijks strand paal
+        trans_feature_temp = geojson.Feature(geometry = trans_line_temp, properties = {'name': str(int(id_trans.values))})
+        featureList.append(trans_feature_temp)
+    
+    transects = geojson.FeatureCollection(featureList)
+    with open(savepath + f'jarkus_transects_epsg{epsg}.geojson', 'w') as f:
+        geojson.dump(transects, f)
+
 def interpolate_regular_grid_onto_JARKUS(x_state, elev_col, lon_jarkus, lat_jarkus):
     mx = np.unique(x_state.geometry.x)
     my = np.unique(x_state.geometry.y)
@@ -118,7 +142,6 @@ def cut_poly_with_transects(jarkus, poly_target_red, idx):
 # ===================================================================================
 # Get shoreline as intersection between elevation profile and a horizontal plane at sea level
 # ===================================================================================
-
 def find_intersections(profile, slh, cross_shore):
     '''
     Code adapted from JAT (Christa van IJzendoorn)
