@@ -5,6 +5,8 @@ from datetime import datetime
 import pandas as pd
 import os
 
+from coastal_data import CD_helper_functions
+
 def load_dutch_psmsl_data(path, bias_before_2005, bias_after_2005):
     tg_orig = pd.read_csv(path, sep=' ', header=None, names=['date', 'SSH_RLR[mm]'])
 
