@@ -142,6 +142,61 @@ def cut_poly_with_transects(jarkus, poly_target_red, idx):
 # ===================================================================================
 # Get shoreline as intersection between elevation profile and a horizontal plane at sea level
 # ===================================================================================
+def get_intersection(jarkus, variable, sea_level_yearly, vlm_rate, static_profile=False, year_fix=1966, static_seaLevel=False):
+    '''
+    Input
+    -----
+    jarkus - xarray DataSet
+    variable - string indicating the height variable in the Jarkus dataset
+    sea_level_yearly - DataFrame with yearly sea level data, related to NAP
+    vlm_rate - float-like, rate of vertical land motion in mm/year
+    year_fix - In which year to fix the profile
+
+    Output
+    -----
+    '''
+    if static_profile:
+        jarkus_years = pd.to_datetime(jarkus.time).year
+        idx_year_fix, = np.where(jarkus_years == year_fix)
+
+    cd_df = pd.DataFrame(index=jarkus.id.values,
+                         columns=pd.to_datetime(jarkus.time).year)
+
+    if static_seaLevel == True:
+        ssh = 0
+        
+    for along in jarkus.alongshore:
+        transect = jarkus.sel(alongshore=along)
+        elevations = transect[variable]
+
+        # cross_shore is relative to rsp, relate to transect origin instead
+        dist_to_orig = 3000 # Distance between rsp and origin is the same for each transect
+        
+        for idx, time in enumerate(jarkus.time):
+            jarkus_year = pd.to_datetime(time.values).year
+            if static_profile == True:
+                profile = elevations.isel(time=idx_year_fix[0])
+            else:
+                profile = elevations.sel(time=time)
+            idx_time, = np.where(sea_level_yearly.index.year == jarkus_year)
+            ssh = sea_level_yearly.iloc[idx_time].values
+            ssh_red = ssh - vlm_rate/1000 * idx
+            
+            intersections = find_intersections(profile, ssh_red, jarkus.cross_shore)
+            DuneTop_prim_x = find_primary_dunetop(profile, jarkus.cross_shore)
+            cd = identify_coastline(intersections, DuneTop_prim_x)
+
+            # relate to transect origin
+            cd = cd + dist_to_orig
+            
+            jarkus_id = jarkus.sel(alongshore=along).id.values
+            cd_df.loc[int(jarkus_id), jarkus_year] = cd
+
+    if static_profile:
+        print(f'Profile in year {year_fix} has {len(cd_df[year_fix].dropna())} out of {len(cd_df[year_fix])} non-NaN values.')
+
+    return cd_df
+    
 def find_intersections(profile, slh, cross_shore):
     '''
     Code adapted from JAT (Christa van IJzendoorn)
