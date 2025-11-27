@@ -142,14 +142,16 @@ def cut_poly_with_transects(jarkus, poly_target_red, idx):
 # ===================================================================================
 # Get shoreline as intersection between elevation profile and a horizontal plane at sea level
 # ===================================================================================
-def get_intersection(jarkus, variable, sea_level_yearly, vlm_rate, static_profile=False, year_fix=1966, static_seaLevel=False):
+def get_intersection(jarkus, variable, sea_level_yearly, vlm_data, static_profile=False, year_fix=1966, static_seaLevel=False):
     '''
     Input
     -----
     jarkus - xarray DataSet
     variable - string indicating the height variable in the Jarkus dataset
     sea_level_yearly - DataFrame with yearly sea level data, related to NAP
-    vlm_rate - float-like, rate of vertical land motion in mm/year
+    # vlm_rate - float-like, rate of vertical land motion in mm/year
+    vlm_data - table with columns 'Longitude', '#Latitude' and 'Up'
+                (latter one containin the upward rate in mm/year)
     year_fix - In which year to fix the profile
 
     Output
@@ -168,6 +170,11 @@ def get_intersection(jarkus, variable, sea_level_yearly, vlm_rate, static_profil
     for idx_along, along in enumerate(jarkus.alongshore):
         transect = jarkus.isel(alongshore=idx_along)
         elevations = transect[variable]
+
+        # Interpolate VLM rate
+        points = (vlm_data['Longitude'], vlm_data['#Latitude'])
+        values = vlm_data['Up']
+        vlm_rate = griddata(points, values, (transect.lon.values, transect.lat.values), method='linear')
 
         # cross_shore is relative to rsp, relate to transect origin instead
         dist_to_orig = 3000 # Distance between rsp and origin is the same for each transect
