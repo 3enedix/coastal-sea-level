@@ -165,8 +165,8 @@ def get_intersection(jarkus, variable, sea_level_yearly, vlm_rate, static_profil
     if static_seaLevel == True:
         ssh = 0
         
-    for along in jarkus.alongshore:
-        transect = jarkus.sel(alongshore=along)
+    for idx_along, along in enumerate(jarkus.alongshore):
+        transect = jarkus.isel(alongshore=idx_along)
         elevations = transect[variable]
 
         # cross_shore is relative to rsp, relate to transect origin instead
@@ -189,7 +189,7 @@ def get_intersection(jarkus, variable, sea_level_yearly, vlm_rate, static_profil
             # relate to transect origin
             cd = cd + dist_to_orig
             
-            jarkus_id = jarkus.sel(alongshore=along).id.values
+            jarkus_id = jarkus.isel(alongshore=idx_along).id.values
             cd_df.loc[int(jarkus_id), jarkus_year] = cd
 
     if static_profile:
