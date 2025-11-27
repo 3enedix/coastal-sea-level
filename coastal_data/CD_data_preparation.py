@@ -5,6 +5,22 @@ from datetime import datetime
 import pandas as pd
 import os
 
+def load_dutch_psmsl_data(path, bias_before_2005, bias_after_2005):
+    tg_orig = pd.read_csv(path, sep=' ', header=None, names=['date', 'SSH_RLR[mm]'])
+
+    tg = pd.DataFrame()
+    tg['date'] = CD_helper_functions.decimal_numbers_to_datetime(tg_orig['date'])
+    tg = tg.set_index('date')
+    
+    # translate RLR to NAP
+    idx = np.nonzero(tg.index.year < 2005)[0]
+    tg.loc[tg.index[idx], 'SSH_NAP[m]'] = ((tg_orig['SSH_RLR[mm]'][idx] - bias_before_2005) / 1000).values
+    
+    idx = np.nonzero(tg.index.year >= 2005)[0]
+    tg.loc[tg.index[idx],'SSH_NAP[m]'] = ((tg_orig['SSH_RLR[mm]'][idx] - bias_after_2005) / 1000).values
+
+    return tg
+
 def prepare_s3_data(datapath_in, datapath_out, filename_reprocessed, filename_input, filename_output, dist2coast):
 
     # import netCDF files
