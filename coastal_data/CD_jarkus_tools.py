@@ -174,7 +174,7 @@ def get_intersection(jarkus, variable, sea_level_yearly, vlm_data, static_profil
         # Interpolate VLM rate
         points = (vlm_data['Longitude'], vlm_data['#Latitude'])
         values = vlm_data['Up']
-        vlm_rate = griddata(points, values, (transect.lon.values, transect.lat.values), method='linear')
+        vlm_rate = griddata(points, values, (transect.lon.values[0], transect.lat.values[0]), method='linear')
 
         # cross_shore is relative to rsp, relate to transect origin instead
         dist_to_orig = 3000 # Distance between rsp and origin is the same for each transect
