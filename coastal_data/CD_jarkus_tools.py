@@ -88,6 +88,45 @@ def get_jarkus_transects(jarkus, epsg, savepath):
     with open(savepath + f'jarkus_transects_epsg{epsg}.geojson', 'w') as f:
         geojson.dump(transects, f)
 
+def compute_beach_slope_per_transect(jarkus, transect, cd_variable, year_start=2022, year_end=2025, buffer=10):
+    '''
+    Mean beach slope around shoreline position
+    Requires 1st derivatives of JARKUS profiles, only extracts them for the specified time and shoreline position.
+
+    Input
+    ---
+    jarkus - xarray Dataset, beach slopes are computed for the entire data set (reduce transects before if needed)
+             * needs to have a field 'altitude_1st_derivative'
+             * this field is not part of the JARKUS data set as provided by Rijkswaterstaat, but needs to be created before
+    transect - float
+    cd_variable - DataFrame of shoreline (cross-shore distances) from variable profile and variable sea level
+        * could be adjusted for other types of shoreline data, e.g. from remote sensing
+    year_start, year_end: int/float, Time period of shoreline positions around which beach slope is taken and from which years in Jarkus beach slopes are computed. year_end is not included (add +1).
+    buffer: Extra buffer around the shorelines [m]
+
+    Output
+    ---
+    bs_mean : list of mean beach slope from Jarkus around the shoreline
+    '''
+    years_jarkus = pd.to_datetime(jarkus.time).year
+
+    bs_mean = []
+    ts = cd_variable.loc[transect, range(year_start, year_end)]-3000
+    if np.all(ts.isna()):
+        return np.nan
+
+    idx_along, = np.where(jarkus.id == transect)
+    idx_yr, = np.where((years_jarkus >= year_start) & (years_jarkus < year_end))
+    bs_profile_timeaveraged = jarkus.altitude_1st_derivative.isel(alongshore=idx_along, time=idx_yr).mean('time').squeeze()
+
+    cross_min = ts[~ts.isna()].min() - buffer
+    cross_max = ts[~ts.isna()].max() + buffer
+    idx_cross, = np.where((jarkus.cross_shore > cross_min) & (jarkus.cross_shore < cross_max))
+    bs_profile_around_shoreline = bs_profile_timeaveraged.isel(cross_shore=idx_cross)
+    bs_mean = np.nanmean(bs_profile_around_shoreline)
+        
+    return bs_mean
+
 def interpolate_regular_grid_onto_JARKUS(x_state, elev_col, lon_jarkus, lat_jarkus):
     mx = np.unique(x_state.geometry.x)
     my = np.unique(x_state.geometry.y)
@@ -138,7 +177,8 @@ def cut_poly_with_transects(jarkus, poly_target_red, idx):
     cut_area = split(split1, transect_1).geoms[1]
 
     return cut_area, split1
-    
+
+   
 # ===================================================================================
 # Get shoreline as intersection between elevation profile and a horizontal plane at sea level
 # ===================================================================================
