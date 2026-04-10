@@ -50,7 +50,7 @@ import pdb
     
 #     return x_state, x_state_s, x_trend, x_mean
 
-def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, rs_shoreline, seg_length, alt, tidal_corr,
+def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_per_bin, rs_shoreline, seg_length, alt, tidal_corr,
                   epsg, T_is_identity, max_distance, w_id, max_noupdate, std_pseudobs,
                   sigma_l, sigma_q, eps_factor, x_trend, year_ref):
 
@@ -63,9 +63,10 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, rs_shoreli
     updated_points = pd.DataFrame({'counter': np.full(len(x_state), 0)}, index=range(0, len(x_state)))
     sigma_xx_up, sigma_xx_pred = {}, {}
     
-    for year in range(year_start, year_end+1):      
-        startdate = str(year) + '-01-01' # '1993-01-01'
-        enddate = str(year+1) + '-01-01' # '1994-01-01'
+    # for year in range(year_start, year_end+1):
+    for year in np.arange(year_start,year_end+1,num_years_per_bin):    
+        startdate = str(year) + '-01-01'
+        enddate = str(year+num_years_per_bin) + '-01-01'
 
         # Observations
         int_pc = CD_combine_data.waterline_method_period(rs_shoreline, seg_length, alt, tidal_corr, startdate, enddate)
@@ -85,7 +86,7 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, rs_shoreli
         A = build_designmatrix_nn(x_state, int_pc)
         deltaYear = year - year_ref
         # l = l - A@x_trend * deltaYear - A@x_mean
-        l = l - A@x_trend * deltaYear
+        l = l - A@x_trend * deltaYear * num_years_per_bin
         updated_points = track_updated_points(updated_points, A, year)
 
         # sigma_ll: Covariance matrix of the observations
@@ -116,9 +117,10 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, rs_shoreli
 
     return x_state, sigma_xx_up, sigma_xx_pred, updated_points, T
 
-def backward_run(x_state, sigma_xx_up, sigma_xx_pred, year_end, T, eps_factor):
+def backward_run(x_state, sigma_xx_up, sigma_xx_pred, T, eps_factor):
     start_time = time.perf_counter()
-    x_state_s = x_state[['geometry', 'x_up_'+str(year_end)]].copy()
+    x_state_s = x_state[['geometry', x_state.columns[-1]]].copy()
+    year_end = x_state.columns[-1].replace('x_up_', '') 
     x_state_s = x_state_s.rename(columns={'x_up_'+str(year_end) : 'x_s_'+str(year_end)})
 
     # Initialise covariance matrix of the smoothed state with covMatrix of the updated state
