@@ -1,6 +1,6 @@
 from shapely import get_coordinates
 from scipy.spatial import cKDTree
-from scipy.sparse import lil_array, eye_array, csc_matrix, issparse, diags_array
+from scipy.sparse import lil_array, eye_array, csc_matrix, issparse, diags_array, coo_array
 from sksparse.cholmod import cholesky
 from sksparse.cholmod import CholmodNotPositiveDefiniteError
 
@@ -434,13 +434,11 @@ def build_designmatrix_bilinear(x_state, int_pc, epsg_local):
     tree = cKDTree(x_coords)
     dist, idx_unk = tree.query(int_pc_coords, k=4) # idx_unk is the column index for A
     
-    A = lil_array((n_obs, n_unk))
-    
     # Choose weights according to inverse distance so that all rows (all pairs of 4) sum up to 1
     weights = (1/dist) / (1/dist).sum(axis=1, keepdims=True)
     
-    A[:,idx_unk] = weights
-    A = A.tocsr()
+    row = np.repeat(np.arange(n_obs), 4)
+    A = coo_array((weights.ravel(), (row, idx_unk.ravel())), shape=(n_obs, n_unk))
 
     return A
 
