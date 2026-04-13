@@ -51,7 +51,7 @@ import pdb
 #     return x_state, x_state_s, x_trend, x_mean
 
 def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_per_bin, rs_shoreline, seg_length, alt, tidal_corr,
-                  epsg, T_is_identity, max_distance, w_id, max_noupdate, std_pseudobs,
+                  epsg, epsg_local, T_is_identity, max_distance, w_id, max_noupdate, std_pseudobs,
                   sigma_l, sigma_q, eps_factor, x_trend, year_ref):
 
     start_time = time.perf_counter()
@@ -83,7 +83,7 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
 
         # Observation vector and design matrix
         l = int_pc['ssh']
-        A = build_designmatrix_nn(x_state, int_pc)
+        A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)
         deltaYear = year - year_ref
         # l = l - A@x_trend * deltaYear - A@x_mean
         l = l - A@x_trend * deltaYear * num_years_per_bin
@@ -398,6 +398,48 @@ def build_designmatrix_nn(x_state, int_pc):
     
     A = lil_array((n_obs, n_unk))
     A[idx_obs, idx_unk] = 1
+    A = A.tocsr()
+
+    return A
+
+def build_designmatrix_bilinear(x_state, int_pc, epsg_local):
+    '''
+    Build A-matrix with bilinear interpolation.
+    The states are the elevations in each grid point.
+    The observations are the heights assigned to shoreline points (intertidal point cloud from waterline method) at one point in time.
+    For each observation, find the four closest grid points.
+    Compute weights with inverse distance.
+    
+    Input
+    -----
+    x_state: GeoDataFrame, one row per grid point, the geometry column contains POINT objects
+             with the coordinates of the target grid
+    int_pc: Intertidal point cloud (= observation) for one point in time (-> one shoreline observations),
+            GeoDataFrame with one shoreline point per row, geometry column with POINT objects
+            contains the coordinates of the shoreline points
+    epsg_local: String, epsg code of a local projected reference system (x,y coords, not lat, lon)
+    '''
+    # Number of unknowns and observations
+    n_obs = len(int_pc)
+    n_unk = len(x_state)
+    
+    x_state_local = x_state.to_crs(epsg_local)
+    int_pc_local = int_pc.to_crs(epsg_local)
+    
+    # Coordinates of state vector and observations
+    x_coords = get_coordinates(x_state_local.geometry) # state vector
+    int_pc_coords = get_coordinates(int_pc_local.geometry) # observations
+    
+    # Nearest neighbour lookup
+    tree = cKDTree(x_coords)
+    dist, idx_unk = tree.query(int_pc_coords, k=4) # idx_unk is the column index for A
+    
+    A = lil_array((n_obs, n_unk))
+    
+    # Choose weights according to inverse distance so that all rows (all pairs of 4) sum up to 1
+    weights = (1/dist) / (1/dist).sum(axis=1, keepdims=True)
+    
+    A[:,idx_unk] = weights
     A = A.tocsr()
 
     return A
