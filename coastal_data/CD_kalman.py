@@ -95,10 +95,11 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
             vars_comb = np.concatenate([np.ones(n_obs) * sigma_l, np.ones(len(int_pc)-n_obs) * std_pseudobs**2])
             sigma_ll = diags_array(vars_comb)
         else:
-            sigma_ll = eye_array(n_obs) * sigma_l
+            # sigma_ll = eye_array(n_obs) * sigma_l
+            sigma_ll = build_obs_covMatrix(int_pc, sigma_l, n_obs, epsg_local)
 
         # Forward KF
-        x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor)
+        x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_state, x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor, epsg_local)
 
         # Overwrite for next iteration
         x_k = x_up_temp
@@ -249,10 +250,61 @@ def initial_state(poly_target, med_sl, epsg, resolution, c_shorelines, alt, path
     print("Done. Needed ", round(ex_time/60,2), "minutes.")
 
 # ===================================================================================
+# Covariance matrices
+# ===================================================================================
+
+def build_init_covMatrix(x_state, std_init, epsg_local):
+    sigma_xx_init_df = gpd.GeoDataFrame({'sigma': std_init**2}, geometry=x_state.geometry, index=x_state.index).to_crs(epsg_local)
+    n_grid = len(sigma_xx_init_df) # number of grid points
+
+    # Nearest neighbour lookup
+    coords = get_coordinates(sigma_xx_init_df.geometry)
+    tree = cKDTree(coords)
+    dist, idx = tree.query(coords, k=5)
+
+    corrs = (dist[:, 1:]) / (1/dist[:, 1:]).sum(axis=1, keepdims=True) / std_init**2
+    sigma_values = np.insert(arr=corrs, obj=0, values=sigma_xx_init_df.sigma.values, axis=1)
+
+    row = np.repeat(np.arange(n_grid), 5)
+    sigma_xx_init = coo_array((sigma_values.ravel(), (row, idx.ravel())), shape=(n_grid, n_grid))
+
+    return sigma_xx_init
+
+def build_obs_covMatrix(int_pc, sigma_l, n_obs, epsg_local):
+    # Nearest neighbour lookup
+    coords = get_coordinates(int_pc.to_crs(epsg_local).geometry)
+    tree = cKDTree(coords)
+    dist, idx = tree.query(coords, k=5)
+    
+    corrs = (dist[:, 1:]) / (1/dist[:, 1:]).sum(axis=1, keepdims=True) / sigma_l
+    sigma_values = np.insert(arr=corrs, obj=0, values=np.repeat(sigma_l, n_obs), axis=1)
+
+    row = np.repeat(np.arange(n_obs), 5)
+    sigma_ll = coo_array((sigma_values.ravel(), (row, idx.ravel())), shape=(n_obs, n_obs))
+
+    return sigma_ll
+
+def build_noise_covMatrix(x_state, q, epsg_local):
+    n_grid = len(x_state)
+    
+    # Nearest neighbour lookup
+    coords = get_coordinates(x_state.to_crs(epsg_local).geometry)
+    tree = cKDTree(coords)
+    dist, idx = tree.query(coords, k=5)
+    
+    corrs = (dist[:, 1:]) / (1/dist[:, 1:]).sum(axis=1, keepdims=True) / q
+    sigma_values = np.insert(arr=corrs, obj=0, values=np.repeat(q, n_grid), axis=1)
+
+    row = np.repeat(np.arange(n_grid), 5)
+    sigma_qq = coo_array((sigma_values.ravel(), (row, idx.ravel())), shape=(n_grid, n_grid))
+
+    return sigma_qq
+
+# ===================================================================================
 # Filter (forward & backward)
 # ===================================================================================
 
-def KF(x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor):
+def KF(x_state, x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor, epsg_local):
     '''
     (Forward) Kalman Filter
     
@@ -279,17 +331,26 @@ def KF(x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor):
 
     # Prediction
     x_p = T @ x_k 
-    sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
+    # sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
+    
+    sigma_qq = build_noise_covMatrix(x_state, q, epsg_local)
+    sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
 
     # Update
     d = l - A @ x_p
     sigma_dd = A @ sigma_xx_p @ A.transpose() + sigma_ll
     
     sigma_dd = csc_matrix(sigma_dd)
-    factor = cholesky(sigma_dd)
-    b = A @ sigma_xx_p
-    b = csc_matrix(b)
-    K = factor(b).T
+    try:
+        factor = cholesky(sigma_dd)
+        b = A @ sigma_xx_p
+        b = csc_matrix(b)
+        K = factor(b).T
+    except: # CholmodNotPositiveDefiniteError:
+        # Use pseudoinverse from SVD instead
+        sigma_dd_inv = CD_matrix_tools.pseudoinverse(sigma_dd)      
+        K = sigma_xx_p @ A.T @ sigma_dd_inv
+        K = CD_matrix_tools.sparsify_matrix(K, eps_factor)
 
     x_up = x_p + K @ d
 
