@@ -95,8 +95,8 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
             vars_comb = np.concatenate([np.ones(n_obs) * sigma_l, np.ones(len(int_pc)-n_obs) * std_pseudobs**2])
             sigma_ll = diags_array(vars_comb)
         else:
-            # sigma_ll = eye_array(n_obs) * sigma_l
-            sigma_ll = build_obs_covMatrix(int_pc, sigma_l, n_obs, epsg_local)
+            sigma_ll = eye_array(n_obs) * sigma_l
+            # sigma_ll = build_obs_covMatrix(int_pc, sigma_l, n_obs, epsg_local)
 
         # Forward KF
         x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_state, x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor, epsg_local)
@@ -331,10 +331,10 @@ def KF(x_state, x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor, epsg_local):
 
     # Prediction
     x_p = T @ x_k 
-    # sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
+    sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
     
-    sigma_qq = build_noise_covMatrix(x_state, q, epsg_local)
-    sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
+    # sigma_qq = build_noise_covMatrix(x_state, q, epsg_local)
+    # sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
 
     # Update
     d = l - A @ x_p
