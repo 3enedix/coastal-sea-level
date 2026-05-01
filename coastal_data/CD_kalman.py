@@ -83,7 +83,8 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
 
         # Observation vector and design matrix
         l = int_pc['ssh']
-        A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)
+        # A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)
+        A = build_designmatrix_nn(x_state, int_pc)
         deltaYear = year - year_ref
         # l = l - A@x_trend * deltaYear - A@x_mean
         l = l - A@x_trend * deltaYear * num_years_per_bin
