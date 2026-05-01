@@ -153,7 +153,7 @@ def backward_run(x_state, sigma_xx_up, sigma_xx_pred, T, eps_factor):
 # Initial state
 # ===================================================================================
 
-def initial_state(poly_target, med_sl, epsg, resolution, c_shorelines, alt, path_input, path_output, fn_init, fn_gebco, fn_ddtm):
+def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_output, fn_init, fn_gebco, fn_ddtm):
     '''
     No return, saves result as TIF in path_output.
     '''
