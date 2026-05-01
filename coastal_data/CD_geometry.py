@@ -295,7 +295,7 @@ def interpolate_dem(dem, x_poly, y_poly):
 # Volumes
 # ===================================================================================
 
-def compute_volume_changes(data, poly, col_name, epsg_out):
+def compute_volume_changes(data, poly, epsg_out):
     '''
     Compute yearly time series of volume changes.
     
@@ -303,7 +303,6 @@ def compute_volume_changes(data, poly, col_name, epsg_out):
     -----
     data - GeoDataFrame with one Point per row
     poly - shapely Polygon defining the area over which to compute volumes
-    col_name - Column names  of 'data', such that the full column name is f'{col_name}{year}'
 
     Input
     -----
@@ -312,11 +311,11 @@ def compute_volume_changes(data, poly, col_name, epsg_out):
     poly_local = transform_polygon(poly, 4326, epsg_out)
     data_in_poly = data[data.intersects(poly)]
     
-    year_list = [int(_) for _ in data.drop(columns='geometry').columns.str.replace(col_name, '')]
+    year_list = [int(_) for _ in data.drop(columns='geometry').columns]
     
     vol = {}
     for year in year_list:
-        heights = data_in_poly[f'{col_name}{year}']
+        heights = data_in_poly[str(year)]
         vol[year] = heights.mean() * poly_local.area
 
     return vol
