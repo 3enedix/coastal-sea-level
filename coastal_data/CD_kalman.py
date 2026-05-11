@@ -83,8 +83,7 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
 
         # Observation vector and design matrix
         l = int_pc['ssh']
-        # A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)
-        A = build_designmatrix_nn(x_state, int_pc)
+        A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)
         deltaYear = year - year_ref
         # l = l - A@x_trend * deltaYear - A@x_mean
         l = l - A@x_trend * deltaYear * num_years_per_bin
@@ -96,8 +95,8 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
             vars_comb = np.concatenate([np.ones(n_obs) * sigma_l, np.ones(len(int_pc)-n_obs) * std_pseudobs**2])
             sigma_ll = diags_array(vars_comb)
         else:
-            sigma_ll = eye_array(n_obs) * sigma_l
-            # sigma_ll = build_obs_covMatrix(int_pc, sigma_l, n_obs, epsg_local)
+            # sigma_ll = eye_array(n_obs) * sigma_l
+            sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=20)
 
         # Forward KF
         x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_state, x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor, epsg_local)
@@ -251,57 +250,6 @@ def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_o
     print("Done. Needed ", round(ex_time/60,2), "minutes.")
 
 # ===================================================================================
-# Covariance matrices
-# ===================================================================================
-
-def build_init_covMatrix(x_state, std_init, epsg_local):
-    sigma_xx_init_df = gpd.GeoDataFrame({'sigma': std_init**2}, geometry=x_state.geometry, index=x_state.index).to_crs(epsg_local)
-    n_grid = len(sigma_xx_init_df) # number of grid points
-
-    # Nearest neighbour lookup
-    coords = get_coordinates(sigma_xx_init_df.geometry)
-    tree = cKDTree(coords)
-    dist, idx = tree.query(coords, k=5)
-
-    corrs = (dist[:, 1:]) / (1/dist[:, 1:]).sum(axis=1, keepdims=True) / std_init**2
-    sigma_values = np.insert(arr=corrs, obj=0, values=sigma_xx_init_df.sigma.values, axis=1)
-
-    row = np.repeat(np.arange(n_grid), 5)
-    sigma_xx_init = coo_array((sigma_values.ravel(), (row, idx.ravel())), shape=(n_grid, n_grid))
-
-    return sigma_xx_init
-
-def build_obs_covMatrix(int_pc, sigma_l, n_obs, epsg_local):
-    # Nearest neighbour lookup
-    coords = get_coordinates(int_pc.to_crs(epsg_local).geometry)
-    tree = cKDTree(coords)
-    dist, idx = tree.query(coords, k=5)
-    
-    corrs = (dist[:, 1:]) / (1/dist[:, 1:]).sum(axis=1, keepdims=True) / sigma_l
-    sigma_values = np.insert(arr=corrs, obj=0, values=np.repeat(sigma_l, n_obs), axis=1)
-
-    row = np.repeat(np.arange(n_obs), 5)
-    sigma_ll = coo_array((sigma_values.ravel(), (row, idx.ravel())), shape=(n_obs, n_obs))
-
-    return sigma_ll
-
-def build_noise_covMatrix(x_state, q, epsg_local):
-    n_grid = len(x_state)
-    
-    # Nearest neighbour lookup
-    coords = get_coordinates(x_state.to_crs(epsg_local).geometry)
-    tree = cKDTree(coords)
-    dist, idx = tree.query(coords, k=5)
-    
-    corrs = (dist[:, 1:]) / (1/dist[:, 1:]).sum(axis=1, keepdims=True) / q
-    sigma_values = np.insert(arr=corrs, obj=0, values=np.repeat(q, n_grid), axis=1)
-
-    row = np.repeat(np.arange(n_grid), 5)
-    sigma_qq = coo_array((sigma_values.ravel(), (row, idx.ravel())), shape=(n_grid, n_grid))
-
-    return sigma_qq
-
-# ===================================================================================
 # Filter (forward & backward)
 # ===================================================================================
 
@@ -332,10 +280,10 @@ def KF(x_state, x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor, epsg_local):
 
     # Prediction
     x_p = T @ x_k 
-    sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
-    
-    # sigma_qq = build_noise_covMatrix(x_state, q, epsg_local)
-    # sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
+    # sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
+
+    sigma_qq = build_covMatrix(x_state, q, epsg_local, n_neighbours=20)
+    sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
 
     # Update
     d = l - A @ x_p
@@ -349,10 +297,11 @@ def KF(x_state, x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor, epsg_local):
         K = factor(b).T
     except: # CholmodNotPositiveDefiniteError:
         # Use pseudoinverse from SVD instead
-        sigma_dd_inv = CD_matrix_tools.pseudoinverse(sigma_dd)      
+        # sigma_dd_inv = CD_matrix_tools.pseudoinverse(sigma_dd)
+        # non-sparse pseudoinverse:
+        sigma_dd_inv = np.linalg.pinv(sigma_dd.toarray())
         K = sigma_xx_p @ A.T @ sigma_dd_inv
-        K = CD_matrix_tools.sparsify_matrix(K, eps_factor)
-
+        # K = CD_matrix_tools.sparsify_matrix(K, eps_factor)
     x_up = x_p + K @ d
 
     sigma_xx_up = sigma_xx_p - K @ sigma_dd @ K.transpose()
@@ -399,9 +348,11 @@ def RTS_smoother(T, xup_0, sigma_xx_up_0, xpred_1, sigma_xx_pred_1, xs_1, sigma_
         Ks = factor(b).T
     except: # CholmodNotPositiveDefiniteError:
         # Use pseudoinverse from SVD instead
-        sigma_xx_pred_1_inv = CD_matrix_tools.pseudoinverse(sigma_xx_pred_1)      
+        # sigma_xx_pred_1_inv = CD_matrix_tools.pseudoinverse(sigma_xx_pred_1)
+        # non-sparse pseudoinverse:
+        sigma_xx_pred_1_inv = np.linalg.pinv(sigma_xx_pred_1.toarray())
         Ks = sigma_xx_up_0 @ T.T @ sigma_xx_pred_1_inv
-        Ks = CD_matrix_tools.sparsify_matrix(Ks, eps_factor)
+        # Ks = CD_matrix_tools.sparsify_matrix(Ks, eps_factor)
         
     # Remove NaNs for matrix multiplication
     idx, = np.where(np.isnan(xup_0))
@@ -411,13 +362,14 @@ def RTS_smoother(T, xup_0, sigma_xx_up_0, xpred_1, sigma_xx_pred_1, xs_1, sigma_
     xpred_1.loc[idx] = 0
 
     # Smoothed state 
-    xs_0 = xup_0 + Ks * (xs_1 - xpred_1)
+    # xs_0 = xup_0 + Ks * (xs_1 - xpred_1)
+    xs_0 = xup_0 + Ks @ (xs_1 - xpred_1)
 
     # Covariance matrix of the smoothed state
     diff = sigma_xx_s_1 - sigma_xx_pred_1
     sigma_xx_s_0 = sigma_xx_up_0 + Ks @ diff @ Ks.T
 
-    sigma_xx_s_0 = CD_matrix_tools.sparsify_matrix(sigma_xx_s_0, eps_factor)
+    # sigma_xx_s_0 = CD_matrix_tools.sparsify_matrix(sigma_xx_s_0, eps_factor)
 
     # Re-insert the NaNs (so to not to confuse them with elevation=0)
     xs_0.loc[idx] = np.nan
@@ -565,6 +517,51 @@ def build_transitionmatrix(T_is_identity, x_state, max_distance, w_id):
             # Set weights of non-identical points
             T[i,col_idx_thisrow] = w_nonid
     return T
+
+# ===================================================================================
+# Covariance matrix
+# ===================================================================================
+
+def build_covMatrix(data, std, epsg_local, n_neighbours):
+    n_data = len(data) # number of grid points
+
+    # Nearest neighbour lookup
+    coords = get_coordinates(data.to_crs(epsg_local).geometry)
+    tree = cKDTree(coords)
+    dist, idx = tree.query(coords, k=n_neighbours)
+
+    # Correlations as inverse distances, scaled between 0 and 1
+    inv_dist = 1/dist[:, 1:]
+    # Replace inf with some large number
+    idx0_row, idx0_col = np.where(dist[:, 1:]==0)
+    inv_dist[idx0_row, idx0_col] = 1000 # this is quite arbitrary...
+
+    corrs = (inv_dist-np.nanmin(inv_dist))/(np.nanmax(inv_dist) - np.nanmin(inv_dist))
+    covs = corrs / std**2
+
+    # Fill covariance matrix
+    sigma = np.diag(np.repeat(std**2, n_data)).astype('float')
+    sigma_temp = np.zeros((n_data, n_data))
+    counts = np.zeros((n_data, n_data))
+    idx_data = idx[:,0] # 0, 1, ... 284
+    for idx_nn in range(1, n_neighbours-1):
+        nn = idx[:,idx_nn]        
+        # Accumulate both triangles
+        np.add.at(sigma_temp, (idx_data, nn), covs[:,idx_nn])
+        np.add.at(sigma_temp, (nn, idx_data), covs[:,idx_nn])        
+        # Track how many times each element was assigned
+        np.add.at(counts, (idx_data, nn), 1)
+        np.add.at(counts, (nn, idx_data), 1)
+    
+    # Average the accumulated values
+    sigma[counts > 0] = sigma_temp[counts > 0] / counts[counts > 0]
+    
+    if not np.allclose(sigma, sigma.T):
+        raise ValueError('Covariance matrix not symmetric.')
+
+    # print(f'Covariance matrix with correlations based on {n_neighbours} nearest neighbours. Distances between {np.min(dist)} and {np.max(dist)} lead to correlations between {np.min(corrs)} and {np.max(corrs)}.')
+
+    return sigma
 
 # ===================================================================================
 # Helper functions
