@@ -95,8 +95,8 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
             vars_comb = np.concatenate([np.ones(n_obs) * sigma_l, np.ones(len(int_pc)-n_obs) * std_pseudobs**2])
             sigma_ll = diags_array(vars_comb)
         else:
-            # sigma_ll = eye_array(n_obs) * sigma_l
-            sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=20)
+            sigma_ll = eye_array(n_obs) * sigma_l
+            # sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=10)
 
         # Forward KF
         x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_state, x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor, epsg_local)
@@ -153,7 +153,7 @@ def backward_run(x_state, sigma_xx_up, sigma_xx_pred, T, eps_factor):
 # Initial state
 # ===================================================================================
 
-def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_output, fn_init, fn_gebco, fn_ddtm):
+def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_output, fn_init, fn_gebco):
     '''
     No return, saves result as TIF in path_output.
     '''
@@ -168,7 +168,7 @@ def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_o
     
     # 2. Get global DEMS
     gebco = xr.open_dataset(path_input+fn_gebco)
-    ddtm = xr.open_dataset(path_input+fn_ddtm).squeeze()
+    # ddtm = xr.open_dataset(path_input+fn_ddtm).squeeze()
 
     if epsg != 4326:
         poly_4326 = CD_geometry.transform_polygon(poly_target, epsg, 4326)
@@ -181,43 +181,39 @@ def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_o
 
     # If kernel dies, there are too many points for 'gpd.points_from_xy(dem_df.x, dem_df.y)'
     # Shutting all other kernels can help
-    ddtm_gdf = CD_geometry.cut_DEM_to_target_area(ddtm, 'band_data', poly_4326, 'ddtm')
+    # ddtm_gdf = CD_geometry.cut_DEM_to_target_area(ddtm, 'band_data', poly_4326, 'ddtm')
     gebco_gdf = CD_geometry.cut_DEM_to_target_area(gebco, 'elevation', poly_gebco, 'gebco')
 
     # del ddtm, gebco
     
     if epsg != 4326:
         gebco_gdf = gebco_gdf.to_crs(epsg)
-        ddtm_gdf = ddtm_gdf.to_crs(epsg)
+        # ddtm_gdf = ddtm_gdf.to_crs(epsg)
 
     # 3. Interpolate global DEMs individually
     gebco_interp = CD_geometry.interpolate_dem(gebco_gdf, x_poly, y_poly)
-    ddtm_interp = CD_geometry.interpolate_dem(ddtm_gdf, x_poly, y_poly)
-
-    # del ddtm_gdf, gebco_gdf
-
-    # 4. Remove bias between GEBCO and DeltaDTM
-    # Find where GEBCO and DeltaDTM intersect
-    inter = gpd.sjoin(gebco_interp, ddtm_interp, how='inner', predicate='intersects', lsuffix='gebco', rsuffix='ddtm')
-
-    diff = inter.elevation_gebco - inter.elevation_ddtm
-    if not inter.empty:
-        bias = np.nanmean(diff)
-        print(f'Bias GEBCO - DeltaDTM: {round(bias,2)} m (based on {len(diff)} overlapping points (interpolated to target grid))')
-    else:
-        bias = 0
-        print(f'No overlapping area between GEBCO and DeltaDTM.')
-
-    # Remove the bias from GEBCO (and overwrite dataframe variable)
-    gebco_interp.elevation = gebco_interp.elevation - bias
-
-    # 5. Remove overlapping points and piece together
-    idx_geb_overlap = gebco_interp.index.isin(inter.index_ddtm)
-    gebco_noverlap = gebco_interp[~idx_geb_overlap]
+    # ddtm_interp = CD_geometry.interpolate_dem(ddtm_gdf, x_poly, y_poly)
     
-    comb_interp = pd.concat([ddtm_interp, gebco_noverlap])
+    # # 4. Remove bias between GEBCO and DeltaDTM
+    # # Find where GEBCO and DeltaDTM intersect
+    # inter = gpd.sjoin(gebco_interp, ddtm_interp, how='inner', predicate='intersects', lsuffix='gebco', rsuffix='ddtm')
 
-    # del gebco_interp, ddtm_interp
+    # diff = inter.elevation_gebco - inter.elevation_ddtm
+    # if not inter.empty:
+    #     bias = np.nanmean(diff)
+    #     print(f'Bias GEBCO - DeltaDTM: {round(bias,2)} m (based on {len(diff)} overlapping points (interpolated to target grid))')
+    # else:
+    #     bias = 0
+    #     print(f'No overlapping area between GEBCO and DeltaDTM.')
+
+    # # Remove the bias from GEBCO (and overwrite dataframe variable)
+    # gebco_interp.elevation = gebco_interp.elevation - bias
+
+    # # 5. Remove overlapping points and piece together
+    # idx_geb_overlap = gebco_interp.index.isin(inter.index_ddtm)
+    # gebco_noverlap = gebco_interp[~idx_geb_overlap]
+    
+    # comb_interp = pd.concat([ddtm_interp, gebco_noverlap])
 
     # 6. [Smooth] removed, see notebook 52_initial_state for the code if spatial smoothing desired
 
@@ -227,24 +223,27 @@ def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_o
     # Buffer around median shoreline with the resolution of the target grid
     med_sl_buffer = med_sl.buffer(resolution)
     # Get DEM in the shoreline buffer zone
-    dem_in_slzone = comb_interp[comb_interp.intersects(med_sl_buffer)]
+    # dem_in_slzone = comb_interp[comb_interp.intersects(med_sl_buffer)]
+    dem_in_slzone = gebco_interp[gebco_interp.intersects(med_sl_buffer)]
 
     # Compute bias
     msl = np.nanmean(alt.values)
     diff = dem_in_slzone.elevation - msl
 
     # Remove bias
-    comb_interp.elevation = comb_interp.elevation - diff.mean()
+    # comb_interp.elevation = comb_interp.elevation - diff.mean()
+    gebco_interp.elevation = gebco_interp.elevation - diff.mean()
+
 
     # 8. Export as TIF
-    comb_interp = comb_interp.set_crs(epsg)
-    cube = make_geocube(vector_data=comb_interp,
+    gebco_interp = gebco_interp.set_crs(epsg)
+    cube = make_geocube(vector_data=gebco_interp,
                      measurements=['elevation'],
                      resolution=(-resolution,resolution))    
     cube.rio.to_raster(path_output + fn_init)
     # metadata
-    with open (path_output+fn_init+'.txt', 'w') as f:
-            f.write(f'Initial state as combination of GEBCO and DeltaDTM. Created on {time.strftime("%Y-%m-%d_%H:%M:%S")}')
+    # with open (path_output+fn_init+'.txt', 'w') as f:
+    #         f.write(f'Initial state as combination of GEBCO and DeltaDTM. Created on {time.strftime("%Y-%m-%d_%H:%M:%S")}')
     end_time = time.process_time()
     ex_time = end_time - start_time
     print("Done. Needed ", round(ex_time/60,2), "minutes.")
@@ -280,10 +279,13 @@ def KF(x_state, x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor, epsg_local):
 
     # Prediction
     x_p = T @ x_k 
-    # sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
+    
+    # sigma_qq with correlations:
+    # sigma_qq = build_covMatrix(x_state, q, epsg_local, n_neighbours=10)
+    # sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
 
-    sigma_qq = build_covMatrix(x_state, q, epsg_local, n_neighbours=20)
-    sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
+    # sigma_qq as diagonal matrix without correlations:
+    sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
 
     # Update
     d = l - A @ x_p
