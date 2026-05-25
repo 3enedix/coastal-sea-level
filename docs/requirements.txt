@@ -1,0 +1,10 @@
+# requirements file for RTD
+xarray==2024.9.0
+pandas==2.2.3
+geopandas==1.0.1
+numpy==1.26.4
+shapely==2.1.2
+scipy==1.17.1
+matplotlib==3.10.3
+cartopy==0.23.0
+cdsapi==0.7.6
