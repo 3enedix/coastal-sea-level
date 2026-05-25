@@ -39,7 +39,7 @@ def movie(df, x_poly, y_poly, col_list, first_col, extent, zoom, pixelsize, save
     
     # Initial state
     scat = ax.scatter(x_poly, y_poly, marker='.', s=pixelsize, c=df[first_col],
-                      transform=ccrs.PlateCarree(), cmap='BrBG_r', vmin=-1, vmax=1)
+                      transform=ccrs.PlateCarree(), cmap='BrBG_r', vmin=-3, vmax=3)
     title = ax.set_title(first_col)
     fig.colorbar(scat, shrink=1, pad=.12, label='[m]')
     

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from cartopy.feature import LAND
 import cartopy.crs as ccrs
 
+import cdsapi
 
 from coastal_data import CD_statistics, CD_helper_functions
 
@@ -25,13 +26,11 @@ def combine_openadb_nc_files(path):
     Combines all netCDF files in all subfolders under 'path' into one .nc-file.
     Additionally, tweaks variable names and datetimes for further usage.
     
-    Input
-    -----
-    path - string of parent folder (subfolders per mission and per pass)
-    
-    Output
-    -----
-    data_alt - xarray Dataset (can then be saved as netcdf)
+    :param path: parent folder (subfolders per mission and per pass)
+    :type path: string
+
+    :rtype: xarray Dataset
+    :return: Combined OpenADB NetCDF files
     '''
     data_alt = xr.Dataset()
     # this loop takes quite a long time (~ 15 minutes on my laptop)
@@ -67,14 +66,13 @@ def select_missions(data_alt, missions):
     '''
     From the OpenADB merged dataset, select which missions to use.
 
-    Input
-    -----
-    data_alt - xarray Dataset, merged with combine_openadb_nc_files
-    mission - list of strings with the mission names to use
+    :param data_alt: Combined OpenADB NetCDF files (output from combine_openadb_nc_files)
+    :type data_alt: xarray Dataset
+    :param mission: mission names to be used
+    :type mission: string
 
-    Output
-    -----
-    data_mis - xarray Dataset, same as data_alt but containing only the requested missions
+    :rtype: xarray Dataset
+    :return: NetCDF file with the requested missions
     '''
 
     idx = np.empty((0), dtype='int')
@@ -91,13 +89,11 @@ def clean_openadb_ales(ales):
     Clean data according to the instructions on the OpenADB website:
     https://openadb.dgfi.tum.de/en/products/adaptive-leading-edge-subwaveform-retracker/
 
-    Input
-    -----
-    ales - xarray Dataset, merged with combine_openadb_nc_files
+    :param ales: Combined OpenADB NetCDF files (output from combine_openadb_nc_files)
+    :type ales: xarray Dataset
 
-    Output
-    -----
-    ales - xarray Dataset
+    :return: Cleaned input
+    :rtype: xarray Dataset
     '''
     idx_dist, = np.where((ales.distance >= 3) | (np.isnan(ales.distance)))
     idx_sla, = np.where(abs(ales['ssh'] - ales['mssh']) <= 2.5)
@@ -117,14 +113,13 @@ def clean_rads(rads_data, sla_var):
     Apply (reduced) cleaning for dist to coast and SLA
     as in clean_openadb_ales.
 
-    Input
-    -----
-    rads_data - xarray Dataset
-    sla_var - string, name of the variable containing SLAs
+    :param rads_data: NetCDF file with RADS altimetry data
+    :type rads_data: xarray Dataset
+    :param sla_var: Name of the variable containing SLAs
+    :type sla_var: string
 
-    Output
-    -----
-    rads_data - xarray Dataset
+    :return: Cleaned input
+    :rtype: xarray Dataset
     '''
     idx_dist, = np.where((rads_data.dist_coast >= 3) | (np.isnan(rads_data.dist_coast)))
     idx_sla, = np.where(abs(rads_data[sla_var]) <= 2.5)
@@ -146,27 +141,29 @@ def get_altimetry_timeseries_with_TG(alt_data, labels, epsg_in, epsg_out, tg, tg
     The function presents maps and high-scores lists for each parameter,
     and asks the user to manually select the cells from which to extract the timeseries.
 
-    Input
-    ------
-    alt_data - xarray Dataset (from netcdf)
-    labels - dict, under which label in the dataset are which variables stored
-        e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
-    epsg_in, epsg_out - float
-        ! cell numbers change for different crs !
-        ! out epsg can not be WGS84 (epgs 4326) !
-    tg - pandas Series of corrected tide gauge data (corrected for IB and VLM) with DatetimeIndex
-    tg_lon, tg_lat: longitude and latitude of tide gauge (only used for plot)
-    gridsize - dict, gridsize in x- and y-direction to bin timeseries into chessboard-cells
-        e.g.: gridsize = {'x':25, 'y':25} # [km]
-    period_covered - dict, min and max dates of the timeseries used for comparison with the tide gauge
-        (to ensure that timeseries are long enough)
-        e.g.: period_covered = {'min':'2002-07-01', 'max':'2020-03-31'}
-    freq_average - string, period over which to average in pd.Grouper
-        (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
+    :param alt_data: Altimetry data (e.g. output from clean_openadb_ales or clean_rads)
+    :type alt_data: xarray Dataset
+    :param labels: Names of the variable in alt_data, e.g.: labels = {'time':'time', 'lon':'glon', 'lat':'glat', 'ssh':'ssh', 'mssh':'mssh'}
+    :type labels: dict
+    :param epsg_in: CRS of the input data
+    :type epsg_in: float
+    :param epsg_out: Desired crs of the output data (cannot be WGS84/epgs 4326). Cell numbers change for different output crs.
+    :type epsg_out: float
+    :param tg: Corrected tide gauge data (corrected for IB and VLM), must include DatetimeIndex
+    :type tg: pandas Series
+    :param tg_lon: Longitude of tide gauge
+    :type tg_lon: float
+    :param tg_lat: Latitude of tide gauge
+    :type tg_lat: float
+    :param gridsize: Gridsize in x- and y-direction to bin timeseries into chessboard-cells, e.g.: gridsize = {'x':25, 'y':25} # [km]
+    :type gridsize: dict
+    :param period_covered: Min and max dates of the timeseries used for comparison with the tide gauge, (to ensure that timeseries are long enough), e.g.: period_covered = {'min':'2002-07-01', 'max':'2020-03-31'}
+    :type period_covered: dict
+    :param freq_average: Period over which to average in pd.Grouper, (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
+    :type freq_average: string
 
-    Output
-    ------
-    alt_ex_temp_av - pandas DataFrame with columns time, sla_temp_av, ssh_temp_av and mss_temp_av
+    :return: SLA, SSH and MSS for one time series per grid cell
+    :rtype: pandas DataFrame
     '''
     plt.close('all')
     
@@ -319,21 +316,26 @@ def get_altimetry_timeseries_from_polygon(sla, lon, lat, time, epsg_in, epsg_out
     If no tide gauge available, simply average all points
     inside a user-defined polygon.
 
-    Input
-    -----
-    sla - sea level anomaly, array-like (nx1)
-    lon - longitude, array-like (nx1)
-    lat - latitude, array-like (nx1)
-    time - time, array-like (nx1)
-    epsg_in, epsg_out - float
-    poly - shapely polygon containing the area over which to average all points
-        ! coordinates of the polygon must be the same crs as epsg['out'] !
-    freq_average - string, period over which to average in pd.Grouper
-        (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
+    :param sla: Sea level anomaly
+    :type sla: array-like (nx1)
+    :param lon: Longitude
+    :type lon: array-like (nx1)
+    :param lat: Latitude
+    :type lat: array-like (nx1)
+    :param time: Time
+    :type time: array-like (nx1)
+    :param epsg_in: CRS of the input data
+    :type epsg_in: float
+    :param epsg_out: Desired crs of the output data (cannot be WGS84/epgs 4326). Cell numbers change for different output crs.
+    :type epsg_out: float
+    :param poly: Area over which to average all points, coordinates of the polygon must be the same crs as epsg_out
+    :type poly: shapely polygon
+    :param freq_average: Period over which to average in pd.Grouper, (see https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases)
+    :type freq_average: string
 
-    Output
-    ------
-    alt_temp_av - pandas DataFrame with columns time, ssh, mssh and sla
+    :return: SLA, SSH and MSS of the created altimetry time series
+    :rtype: pandas DataFrame
+
     '''
     alt_gdf = gpd.GeoDataFrame({
                             'sla':sla
@@ -455,13 +457,12 @@ def equalise_timeseries(ts1, ts2):
     compute the bias from the overlap period as the mean of differences,
     and adjust ts1 so that both are on the average level of ts2.
 
-    Input
-    -----
-    ts1, ts2: pandas Series with DateTime index
-
-    Output
-    -----
-    ts1 with bias to ts2 removed
+    :param ts1: Altimetry time series
+    :type ts1: pandas Series with DateTime index
+    :param ts2: Altimetry time series
+    :type ts2: pandas Series with DateTime index
+    :return: ts1 with bias to ts2 removed
+    :rtype: pandas Series
     '''
     overlap_dates = ts1.index.intersection(ts2.index)
     print(f'There are {len(overlap_dates)} overlapping values in the same time period.')
@@ -480,19 +481,36 @@ def equalise_timeseries(ts1, ts2):
     
     return ts1_biased
 
-# def remove_season_and_trend(ts):
-#     '''
-#     Remove trend and seasonal signal
-#     '''
-#     f = 1 # frequency [years]
-#     l = ts.dropna()
-#     t = l.index.year + (l.index.dayofyear - 1)/365.25
-#     amplitude, phase, trend, offset = CD_statistics.compute_periodic_signal_and_trend(t, l, f)
-#     model = amplitude * np.sin(2*np.pi*f * t + phase) + trend*t + offset
-#     l_corr = l - model
-#     return l_corr
+def remove_season_and_trend(ts):
+    '''
+    Remove trend and seasonal signal
+
+    :param ts: Altimetry time series
+    :type ts: pandas Series
+    :return: Altimetry time series with season and trend removed
+    :rtype: pandas Series
+    '''
+    f = 1 # frequency [years]
+    l = ts.dropna()
+    t = l.index.year + (l.index.dayofyear - 1)/365.25
+    amplitude, phase, trend, offset = CD_statistics.compute_periodic_signal_and_trend(t, l, f)
+    model = amplitude * np.sin(2*np.pi*f * t + phase) + trend*t + offset
+    l_corr = l - model
+    return l_corr
 
 def interpolate_tg_to_alt(alt_index, tg_index, tg_data):
+    '''
+    Interpolate tide gauge time series onto the time steps of the altimetry time series.
+    :param alt_index: Time stamps of the altimetry data
+    :type alt_index: pandas Series DateTimeIndex
+    :param tg_index: Time stamps of the tide gauge data
+    :type tg_index: pandas Series DateTimeIndex
+    :param tg_data: Tide gauge readings
+    :type tg_data: pandas Series
+
+    :return: Tide gauge readings interpolated to the altimetry time steps
+    :rtype: pandas Series
+    '''
     tg_at_alt_time_interp = np.interp(alt_index, tg_index, tg_data)
     tg_at_alt_time = pd.Series(tg_at_alt_time_interp).set_axis(alt_index)
     return tg_at_alt_time
@@ -500,7 +518,7 @@ def interpolate_tg_to_alt(alt_index, tg_index, tg_data):
 def regular_vector(data_min, data_max, spacing_desired):
     '''
     Define a regular vector where the distance between two values
-    is closest to spacing desired (in [km]).
+    is closest to the desiredspacing (in [km]).
     '''
     diff = data_max - data_min
 
@@ -565,6 +583,7 @@ def compute_RMSE(sla, tg):
     return rmse
 
 def fill_cell_stats(cell_stats, cell, tg_data, df_temp_av, df_red, freq_average):
+
     # bring tide gauge data to the same time stamps
     tg_at_alt_time = interpolate_tg_to_alt(df_red.index, tg_data.index, tg_data)
     tg_mon = tg_at_alt_time.groupby(pd.Grouper(freq=freq_average)).mean()
@@ -590,9 +609,6 @@ def fill_cell_stats(cell_stats, cell, tg_data, df_temp_av, df_red, freq_average)
 
 def reformat_chess_data(cell_stats, param, x_vec, y_vec):
     '''
-    cell_stats
-    param, e.g. 'R'
-         
     This function does 2 things:
         1. Adding nans for the cells which don't contain data
         2. Reshapes the values in a way that plotting with pcolormesh colors the right fields on the map.
@@ -612,11 +628,6 @@ def reformat_chess_data(cell_stats, param, x_vec, y_vec):
     return chess_stats_full_re
 
 def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec, alt_gdf, tg_lon, tg_lat, vmin=None, vmax=None, cmap='Blues', title='', label=''):
-    '''
-    first create fig and ax like:
-        fig = plt.figure(figsize=(12,12))
-        ax = plt.axes(projection=ccrs.PlateCarree())
-    '''
     # interactive plotting not possible on server
     # plt.ion()
     # manager = plt.get_current_fig_manager()
@@ -652,12 +663,18 @@ def plot_map(ax, epsg, centers, cell_stats, cell_stats_long, param, x_vec, y_vec
     # plt.pause(0.01)
     # plt.waitforbuttonpress()
     # plt.ioff()
-
     
 # ===================================================================================
 # IB correction
 # ===================================================================================
-def compute_ib_corr(path_input_general):    
+def compute_ib_corr(path_input_general):
+    '''
+    Compute inverse barometer correction. Downloads mean sea level pressure from ERA5 is not found in the specified path.
+    :param path_input_general: Path to ERA5 data
+    :type path_input_general: string
+    :return: xxx
+    :rtype: xxx
+    '''
     # Download mean sea level pressure from ERA5
     fn = 'era5_mean_sea_level_pressure.nc'
     if (not os.path.isfile(path_input_general+fn)):
@@ -696,7 +713,6 @@ def compute_ib_corr(path_input_general):
     return corr
 
 def download_era5_mean_sea_level_pressure(path_output, fn):
-    import cdsapi
     dataset = "reanalysis-era5-single-levels-monthly-means"
     request = {
         "product_type": ["monthly_averaged_reanalysis"],
