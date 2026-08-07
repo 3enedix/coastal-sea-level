@@ -95,8 +95,8 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
             vars_comb = np.concatenate([np.ones(n_obs) * sigma_l, np.ones(len(int_pc)-n_obs) * std_pseudobs**2])
             sigma_ll = diags_array(vars_comb)
         else:
-            sigma_ll = eye_array(n_obs) * sigma_l
-            # sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=10)
+            # sigma_ll = eye_array(n_obs) * sigma_l
+            sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=10)
 
         # Forward KF
         x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_state, x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor, epsg_local)
@@ -281,11 +281,11 @@ def KF(x_state, x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor, epsg_local):
     x_p = T @ x_k 
     
     # sigma_qq with correlations:
-    # sigma_qq = build_covMatrix(x_state, q, epsg_local, n_neighbours=10)
-    # sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
+    sigma_qq = build_covMatrix(x_state, q, epsg_local, n_neighbours=10)
+    sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
 
     # sigma_qq as diagonal matrix without correlations:
-    sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
+    # sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
 
     # Update
     d = l - A @ x_p
@@ -455,7 +455,6 @@ def build_designmatrix_bilinear(x_state, int_pc, epsg_local):
     
     row = np.repeat(np.arange(n_obs), 4)
     A = coo_array((weights.ravel(), (row, idx_unk.ravel())), shape=(n_obs, n_unk))
-
     return A
 
 # ===================================================================================
@@ -560,8 +559,13 @@ def build_covMatrix(data, std, epsg_local, n_neighbours):
     
     if not np.allclose(sigma, sigma.T):
         raise ValueError('Covariance matrix not symmetric.')
-
-    # print(f'Covariance matrix with correlations based on {n_neighbours} nearest neighbours. Distances between {np.min(dist)} and {np.max(dist)} lead to correlations between {np.min(corrs)} and {np.max(corrs)}.')
+    if not np.isfinite(sigma).sum() == sigma.size:
+        raise ValueError('Not all elements in covariance matrix are finite.')
+    eigenvalues, _ = np.linalg.eig(sigma)
+    if not np.all(eigenvalues > -1e-5):
+        raise ValueError('Not all eigenvalues in covariance matrix are positive.')
+    if eigenvalues.max()/eigenvalues.min() > 100:
+        raise ValueError('Condition number of covariance matrix > 100.')
 
     return sigma
 
