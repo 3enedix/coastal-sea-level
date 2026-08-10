@@ -22,33 +22,6 @@ import pdb
 # ===================================================================================
 # Entire forward/backward run
 # ===================================================================================
-# def forward_backward_with_trend(n_iter, year_start, year_end, init, std_init, rs_shoreline, seg_length, alt,
-#                                 tidal_corr, epsg, T_is_identity, max_distance, w_id,
-#                                 max_noupdate, std_pseudobs, sigma_l, sigma_q, eps_factor):
-#     # Initial mean and trend
-#     init_df = init.to_dataframe().reset_index()
-#     x_mean = init_df['band_data']
-#     x_trend = np.full(len(init_df.index), 0)
-
-#     for j in range(0, n_iter):
-#         print(f'Iteration {j}:')
-#         x_state, sigma_xx_up, sigma_xx_pred, updated_points, T = forward_run(
-#                                 year_start, year_end, init, std_init, rs_shoreline, seg_length, alt,
-#                                 tidal_corr, epsg, T_is_identity, max_distance, w_id,
-#                                 max_noupdate, std_pseudobs, sigma_l, sigma_q, eps_factor, x_mean, x_trend)
-        
-#         x_state_s, sigma_xx_s = backward_run(x_state, sigma_xx_up, sigma_xx_pred, year_end, T, eps_factor)
-
-#         # New mean and trend
-#         # x_mean = x_state_s.drop(columns='geometry').mean(axis=1) # mean over all years, separate for each grid point
-#         x_mean = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')]).mean(axis=1)
-#         # trend_new = compute_trend_in_each_gridpoint(x_state_s)['trend_rts']
-#         trend_new = compute_trend_in_each_gridpoint(x_state)['trend']
-#         print(f'Mean trend difference (old - new): {round(np.nanmean(x_trend - trend_new), 2)} m/year')
-#         if j < n_iter:
-#             x_trend = trend_new
-    
-#     return x_state, x_state_s, x_trend, x_mean
 
 def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_per_bin, rs_shoreline, seg_length, alt, tidal_corr,
                   epsg, epsg_local, T_is_identity, max_distance, w_id, max_noupdate, std_pseudobs,
@@ -64,7 +37,7 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
     sigma_xx_up, sigma_xx_pred = {}, {}
     
     # for year in range(year_start, year_end+1):
-    for year in np.arange(year_start,year_end+1,num_years_per_bin):    
+    for year in np.arange(year_start, year_end+1, num_years_per_bin):    
         startdate = str(year) + '-01-01'
         enddate = str(year+num_years_per_bin) + '-01-01'
 
@@ -73,44 +46,49 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
         if int_pc is not None:
             int_pc = int_pc.set_crs(epsg)
             n_obs = len(int_pc)
+
+            # For T with spatial averaging, infuse a pseudo observation if point was not
+            # updated for the last max_noupdate iterations        
+            if (not T_is_identity) and (year > year_start):
+                updated_points, int_pc = infuse_pseudo_observation(updated_points, max_noupdate, x_state, int_pc)
+
+            # Observation vector and design matrix
+            l = int_pc['ssh']
+            A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)
+            deltaYear = year - year_ref
+            # l = l - A@x_trend * deltaYear - A@x_mean
+            l = l - A@x_trend * deltaYear * num_years_per_bin
+            updated_points = track_updated_points(updated_points, A, year)
+    
+            # sigma_ll: Covariance matrix of the observations
+            if (not T_is_identity) and (year > year_start):
+                # Combine variances of observations and pseudo-observations
+                vars_comb = np.concatenate([np.ones(n_obs) * sigma_l, np.ones(len(int_pc)-n_obs) * std_pseudobs**2])
+                sigma_ll = diags_array(vars_comb)
+            else:
+                sigma_ll = eye_array(n_obs) * sigma_l
+                # sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=10)
+    
+            # Forward KF
+            # x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_state, x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor, epsg_local)
+            x_pred_temp, sigma_xx_pred_temp, idx_nan = KF_prediction(x_k, T, x_state, sigma_xx_k, sigma_q, epsg_local)
+            x_up_temp, sigma_xx_up_temp = KF_update(l, A, x_pred_temp, sigma_xx_pred_temp, sigma_ll, eps_factor, idx_nan)
+    
+            # Overwrite for next iteration
+            x_k = x_up_temp
+            sigma_xx_k = sigma_xx_up_temp
+
+            # Save updated state and covariance matrix
+            x_state['x_up_'+str(year)] = x_up_temp
+            sigma_xx_up[str(year)] = csc_matrix(sigma_xx_up_temp)
+                       
         else: # no shorelines in this period
-            continue
+            # only prediction
+            x_pred_temp, sigma_xx_pred_temp, idx_nan = KF_prediction(x_k, T, x_state, sigma_xx_k, sigma_q, epsg_local)      
 
-        # For T with spatial averaging, infuse a pseudo observation if point was not
-        # updated for the last max_noupdate iterations        
-        if (not T_is_identity) and (year > year_start):
-            updated_points, int_pc = infuse_pseudo_observation(updated_points, max_noupdate, x_state, int_pc)
-
-        # Observation vector and design matrix
-        l = int_pc['ssh']
-        A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)
-        deltaYear = year - year_ref
-        # l = l - A@x_trend * deltaYear - A@x_mean
-        l = l - A@x_trend * deltaYear * num_years_per_bin
-        updated_points = track_updated_points(updated_points, A, year)
-
-        # sigma_ll: Covariance matrix of the observations
-        if (not T_is_identity) and (year > year_start):
-            # Combine variances of observations and pseudo-observations
-            vars_comb = np.concatenate([np.ones(n_obs) * sigma_l, np.ones(len(int_pc)-n_obs) * std_pseudobs**2])
-            sigma_ll = diags_array(vars_comb)
-        else:
-            # sigma_ll = eye_array(n_obs) * sigma_l
-            sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=10)
-
-        # Forward KF
-        x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_state, x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor, epsg_local)
-
-        # Overwrite for next iteration
-        x_k = x_up_temp
-        sigma_xx_k = sigma_xx_up_temp 
-
-        # Save predicted and updated state and covariance matrix
+        # Save predicted state and covariance matrix
         x_state['x_pred_'+str(year)] = x_pred_temp
         sigma_xx_pred[str(year)] = csc_matrix(sigma_xx_pred_temp) 
-
-        x_state['x_up_'+str(year)] = x_up_temp
-        sigma_xx_up[str(year)] = csc_matrix(sigma_xx_up_temp)
 
     end_time = time.perf_counter()
     ex_time = end_time - start_time
@@ -121,8 +99,8 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
 def backward_run(x_state, sigma_xx_up, sigma_xx_pred, T, eps_factor):
     start_time = time.perf_counter()
     x_state_s = x_state[['geometry', x_state.columns[-1]]].copy()
-    year_end = x_state.columns[-1].replace('x_up_', '') 
-    x_state_s = x_state_s.rename(columns={'x_up_'+str(year_end) : 'x_s_'+str(year_end)})
+    year_end = x_state.columns[-1].replace('x_pred_', '') 
+    x_state_s = x_state_s.rename(columns={'x_pred_'+str(year_end) : 'x_s_'+str(year_end)})
 
     # Initialise covariance matrix of the smoothed state with covMatrix of the updated state
     sigma_xx_s = OrderedDict()
@@ -135,14 +113,14 @@ def backward_run(x_state, sigma_xx_up, sigma_xx_pred, T, eps_factor):
 
     for i in range(len(year_list)-1, 0, -1):
         x_state_s['x_s_'+str(year_list[i-1])], sigma_xx_s[str(year_list[i-1])] = \
-            RTS_smoother(T=T,
-                         xup_0=x_state['x_up_'+str(year_list[i-1])].copy(),
-                         sigma_xx_up_0=sigma_xx_up[str(year_list[i-1])].copy(),
-                         xpred_1=x_state['x_pred_'+str(year_list[i])].copy(),
-                         sigma_xx_pred_1=sigma_xx_pred[str(year_list[i])].copy(),
-                         xs_1=x_state_s.iloc[:,-1].copy(),
-                         sigma_xx_s_1=list(sigma_xx_s.items())[-1][1].copy(),
-                         eps_factor=eps_factor)
+            RTS_smoother(T = T,
+                         xup_0 = x_state['x_up_'+str(year_list[i-1])].copy(),
+                         sigma_xx_up_0 = sigma_xx_up[str(year_list[i-1])].copy(),
+                         xpred_1 = x_state['x_pred_'+str(year_list[i])].copy(),
+                         sigma_xx_pred_1 = sigma_xx_pred[str(year_list[i])].copy(),
+                         xs_1 = x_state_s.iloc[:,-1].copy(),
+                         sigma_xx_s_1 = list(sigma_xx_s.items())[-1][1].copy(),
+                         eps_factor = eps_factor)
     end_time = time.perf_counter()
     ex_time = end_time - start_time
     print("Backward run done. Needed ", round(ex_time,1), "seconds.")
@@ -251,6 +229,52 @@ def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_o
 # ===================================================================================
 # Filter (forward & backward)
 # ===================================================================================
+
+def KF_prediction(x_k, T, x_state, sigma_xx_k, q, epsg_local):
+    # Remove NaNs for matrix multiplication
+    idx_nan, = np.where(np.isnan(x_k))
+    x_k[idx_nan] = 0
+
+    # Prediction
+    x_p = T @ x_k 
+    
+    # sigma_qq with correlations:
+    # sigma_qq = build_covMatrix(x_state, q, epsg_local, n_neighbours=10)
+    # sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
+
+    # sigma_qq as diagonal matrix without correlations:
+    sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
+
+    return x_p, sigma_xx_p, idx_nan
+
+def KF_update(l, A, x_p, sigma_xx_p, sigma_ll, eps_factor, idx_nan):
+    d = l - A @ x_p
+    sigma_dd = A @ sigma_xx_p @ A.transpose() + sigma_ll
+    
+    sigma_dd = csc_matrix(sigma_dd)
+    try:
+        factor = cholesky(sigma_dd)
+        b = A @ sigma_xx_p
+        b = csc_matrix(b)
+        K = factor(b).T
+    except: # CholmodNotPositiveDefiniteError:
+        # Use pseudoinverse from SVD instead
+        # sigma_dd_inv = CD_matrix_tools.pseudoinverse(sigma_dd)
+        # non-sparse pseudoinverse:
+        sigma_dd_inv = np.linalg.pinv(sigma_dd.toarray())
+        K = sigma_xx_p @ A.T @ sigma_dd_inv
+        # K = CD_matrix_tools.sparsify_matrix(K, eps_factor)
+    x_up = x_p + K @ d
+
+    sigma_xx_up = sigma_xx_p - K @ sigma_dd @ K.transpose()
+    if issparse(sigma_xx_up):
+        sigma_xx_up = CD_matrix_tools.sparsify_matrix(sigma_xx_up, eps_factor)
+
+    # Re-insert the NaNs (so to not to confuse them with elevation=0)
+    x_up[idx_nan] = np.nan
+    x_p[idx_nan] = np.nan
+
+    return x_up, sigma_xx_up
 
 def KF(x_state, x_k, sigma_xx_k, T, q, l, A, sigma_ll, eps_factor, epsg_local):
     '''
