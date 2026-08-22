@@ -54,11 +54,12 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
 
             # Observation vector and design matrix
             l = int_pc['ssh']
-            A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)
-            deltaYear = year - year_ref
-            # l = l - A@x_trend * deltaYear - A@x_mean
-            l = l - A@x_trend * deltaYear * num_years_per_bin
+            A = build_designmatrix_bilinear(x_state, int_pc, epsg_local)         
             updated_points = track_updated_points(updated_points, A, year)
+            if not x_trend.empty:
+                deltaYear = year - year_ref
+                # l = l - A@x_trend * deltaYear - A@x_mean
+                l = l - A@x_trend * deltaYear * num_years_per_bin            
     
             # sigma_ll: Covariance matrix of the observations
             if (not T_is_identity) and (year > year_start):
@@ -439,7 +440,7 @@ def build_designmatrix_nn(x_state, int_pc):
     A = lil_array((n_obs, n_unk))
     A[idx_obs, idx_unk] = 1
     A = A.tocsr()
-
+    
     return A
 
 def build_designmatrix_bilinear(x_state, int_pc, epsg_local):
@@ -731,10 +732,10 @@ def compute_trend_in_each_gridpoint(x_state):
     '''
     trend_kf = pd.DataFrame(index=x_state.index, columns=['trend'], dtype='float')
     for point in x_state.index:
-        x_ts = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')]).loc[point].copy()
+        x_ts = x_state.drop(columns=['init', 'geometry']+[col for col in x_state.columns if col.startswith('x_pred_')], errors='ignore').loc[point].copy()
         # x_ts = x_state.loc[point].copy()
-        year_list = [int(col.split('_')[-1]) for col in x_state.columns if col.startswith('x_up_')]
-
+        year_list = [int(col.split('_')[-1]) for col in x_state.columns if col.startswith('x_up_') or col.startswith('x_s_')]
+        
         if len(x_ts[~np.isnan(x_ts.values)]) < 4:
             continue
         trend_kf.loc[point, 'trend'], _, _ = CD_statistics.compute_trend_with_error(year_list, x_ts.values) # [m/year]
