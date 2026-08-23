@@ -25,7 +25,7 @@ import pdb
 
 def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_per_bin, rs_shoreline, seg_length, alt, tidal_corr,
                   epsg, epsg_local, T_is_identity, max_distance, w_id, max_noupdate, std_pseudobs,
-                  sigma_l, sigma_q, eps_factor, x_trend, year_ref):
+                  sigma_l, sigma_q, eps_factor, x_trend, year_ref, covMatrix):
 
     start_time = time.perf_counter()
 
@@ -66,13 +66,14 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
                 # Combine variances of observations and pseudo-observations
                 vars_comb = np.concatenate([np.ones(n_obs) * sigma_l, np.ones(len(int_pc)-n_obs) * std_pseudobs**2])
                 sigma_ll = diags_array(vars_comb)
-            else:
+            elif covMatrix == 'diagonal':
                 sigma_ll = eye_array(n_obs) * sigma_l
-                # sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=10)
+            elif covMatrix == 'full':
+                sigma_ll = build_covMatrix(int_pc, sigma_l, epsg_local, n_neighbours=10)
     
             # Forward KF
             # x_up_temp, sigma_xx_up_temp, x_pred_temp, sigma_xx_pred_temp = KF(x_state, x_k, sigma_xx_k, T, sigma_q, l, A, sigma_ll, eps_factor, epsg_local)
-            x_pred_temp, sigma_xx_pred_temp, idx_nan = KF_prediction(x_k, T, x_state, sigma_xx_k, sigma_q, epsg_local)
+            x_pred_temp, sigma_xx_pred_temp, idx_nan = KF_prediction(x_k, T, x_state, sigma_xx_k, sigma_q, epsg_local, covMatrix)
             x_up_temp, sigma_xx_up_temp = KF_update(l, A, x_pred_temp, sigma_xx_pred_temp, sigma_ll, eps_factor, idx_nan)
     
             # Overwrite for next iteration
@@ -85,7 +86,7 @@ def forward_run(x_state, init, x_k, sigma_xx_k, year_start, year_end, num_years_
                        
         else: # no shorelines in this period
             # only prediction
-            x_pred_temp, sigma_xx_pred_temp, idx_nan = KF_prediction(x_k, T, x_state, sigma_xx_k, sigma_q, epsg_local)      
+            x_pred_temp, sigma_xx_pred_temp, idx_nan = KF_prediction(x_k, T, x_state, sigma_xx_k, sigma_q, epsg_local, covMatrix)      
 
         # Save predicted state and covariance matrix
         x_state['x_pred_'+str(year)] = x_pred_temp
@@ -231,21 +232,20 @@ def initial_state(poly_target, med_sl, epsg, resolution, alt, path_input, path_o
 # Filter (forward & backward)
 # ===================================================================================
 
-def KF_prediction(x_k, T, x_state, sigma_xx_k, q, epsg_local):
+def KF_prediction(x_k, T, x_state, sigma_xx_k, q, epsg_local, covMatrix):
     # Remove NaNs for matrix multiplication
     idx_nan, = np.where(np.isnan(x_k))
     x_k[idx_nan] = 0
 
     # Prediction
-    x_p = T @ x_k 
-    
-    # sigma_qq with correlations:
-    # sigma_qq = build_covMatrix(x_state, q, epsg_local, n_neighbours=10)
-    # sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
+    x_p = T @ x_k    
 
-    # sigma_qq as diagonal matrix without correlations:
-    sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
-
+    if covMatrix == 'diagonal':
+        sigma_xx_p = T @ sigma_xx_k @ T.T + q * eye_array(len(x_k))
+    elif covMatrix == 'full':
+        sigma_qq = build_covMatrix(x_state, q, epsg_local, n_neighbours=10)
+        sigma_xx_p = T @ sigma_xx_k @ T.T + sigma_qq
+        
     return x_p, sigma_xx_p, idx_nan
 
 def KF_update(l, A, x_p, sigma_xx_p, sigma_ll, eps_factor, idx_nan):
